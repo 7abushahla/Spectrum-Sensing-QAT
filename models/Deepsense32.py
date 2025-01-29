@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[86]:
-
 
 import numpy as np
 import h5py
@@ -33,21 +28,14 @@ from sklearn.model_selection import RepeatedKFold
 from tensorflow.keras.models import load_model
 
 
-# In[87]:
-
 
 # Suppress TensorFlow INFO, WARNING, and ERROR messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-# In[88]:
-
-
 DEVICE = "GPU" if tf.config.list_physical_devices('GPU') else "CPU"
 print(DEVICE)
 
-
-# In[89]:
 
 
 # ================== Configuration Variables ==================
@@ -55,6 +43,7 @@ print(DEVICE)
 model_type = "DeepSense"      # Options: "DeepSense", "ParallelCNN"
 N = 32                        # Options: 128, 32
 training_type = "normal"      # Options: "normal", "QAT"
+dataset = "SDR"                # Options: "SDR", "LTE"
 
 # Reproducibility Settings
 SEED = 42
@@ -70,30 +59,26 @@ BATCHSIZE = 256
 # =============================================================
 
 
-# In[90]:
-
 
 # ================== Naming Conventions ======================
 # Define naming patterns based on configuration
-metrics_filename = f"{model_type}_{N}_{training_type}_metrics.json"
-best_overall_model_filename = f"{model_type}_{N}_{training_type}_best_overall_model.tflite"  # Updated to .tflite
-tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_fold_{{fold_number}}_model.tflite"  # Dynamic naming per fold
+metrics_filename = f"{model_type}_{N}_{training_type}_{dataset}_metrics.json"
+best_overall_model_filename = f"{model_type}_{N}_{training_type}_{dataset}_best_overall_model.tflite"  # Updated to .tflite
+tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fold_{{fold_number}}_model.tflite"  # Dynamic naming per fold
 # =============================================================
 
-
-# In[91]:
 
 
 # ================== Directory Setup =========================
 # Define base results directory
 base_results_dir = "results"
 
-# Construct the directory path
 experiment_dir = os.path.join(
     base_results_dir,
     model_type,
     f"N{N}",
-    training_type
+    training_type,
+    dataset  
 )
 
 # Subdirectories for models, logs, metrics, and plots
@@ -107,8 +92,20 @@ os.makedirs(models_dir, exist_ok=True)
 os.makedirs(logs_dir, exist_ok=True)
 os.makedirs(metrics_dir, exist_ok=True)
 os.makedirs(plots_dir, exist_ok=True)
-# =============================================================
 
+# **Optional: Print Directory Structure for Verification**
+print(f"\nDirectories created:")
+print(f" - Models: {models_dir}")
+print(f" - Logs: {logs_dir}")
+print(f" - Metrics: {metrics_dir}")
+print(f" - Plots: {plots_dir}")
+
+# List contents to confirm (should be empty initially)
+print("\nContents of 'models_dir':", os.listdir(models_dir))
+print("Contents of 'logs_dir':", os.listdir(logs_dir))
+print("Contents of 'metrics_dir':", os.listdir(metrics_dir))
+print("Contents of 'plots_dir':", os.listdir(plots_dir))
+# ===
 
 # In[92]:
 
@@ -187,8 +184,6 @@ print(f"Sample normalized testing data (first 10 samples):\n{X_test_normalized[0
 # =============================================================
 
 
-# In[95]:
-
 
 # ================== Cross-Validation Setup ===================
 # Define cross-validation parameters
@@ -217,7 +212,7 @@ best_overall_model_path = os.path.join(models_dir, best_overall_model_filename)
 best_overall_history = None
 
 # Define TFLite model path pattern per fold
-tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_fold_{{fold_number}}_model.tflite"
+tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fold_{{fold_number}}_model.tflite"
 
 # Fold counter
 total_folds = n_splits * n_repeats
@@ -298,7 +293,7 @@ for train_index, val_index in rkf.split(X_normalized):
     tensorboard_callback = TensorBoard(log_dir=fold_log_dir, histogram_freq=1)
     
     # Define ModelCheckpoint to save the best model based on validation F1-score
-    checkpoint_filename = f"{model_type}_{N}_{training_type}_fold_{fold_number}_best_model.h5"
+    checkpoint_filename = f"{model_type}_{N}_{training_type}_{dataset}_fold_{fold_number}_best_model.h5"
     checkpoint_path = os.path.join(models_dir, checkpoint_filename)
     model_checkpoint = ModelCheckpoint(
         filepath=checkpoint_path,
@@ -391,9 +386,9 @@ for train_index, val_index in rkf.split(X_normalized):
         y_pred_binary = (y_pred > 0.5).astype(int)
         
         # Compute Precision, Recall, and F1-Score using scikit-learn
-        precision = precision_score(y_test, y_pred_binary, average='macro', zero_division=0)
-        recall = recall_score(y_test, y_pred_binary, average='macro', zero_division=0)
-        f1 = f1_score(y_test, y_pred_binary, average='macro', zero_division=0)
+        precision = precision_score(y_test, y_pred_binary, average='micro', zero_division=0)
+        recall = recall_score(y_test, y_pred_binary, average='micro', zero_division=0)
+        f1 = f1_score(y_test, y_pred_binary, average='micro', zero_division=0)
         
         print(f"Fold {fold_number} - Test Precision: {precision:.4f}, Recall: {recall:.4f}, F1-Score: {f1:.4f}")
         
@@ -440,8 +435,6 @@ for train_index, val_index in rkf.split(X_normalized):
     fold_number += 1
 # =============================================================
 
-
-# In[97]:
 
 
 # ================== Aggregating Metrics ======================
@@ -586,8 +579,6 @@ else:
     print("\nNo best overall model was identified. Plot generation skipped.")
 # =============================================================
 
-
-# In[ ]:
 
 
 

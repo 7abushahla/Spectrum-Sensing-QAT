@@ -169,7 +169,7 @@ X_test = test_dset['X'][()]
 y_test = test_dset['y'][()]
 
 print(f"Testing data shape: {X_test.shape}")
-print(f"Sample testing data (first 10 samples):\n{X_test[0, :5, :]}")
+print(f"Sample testing data (first 5 samples):\n{X_test[0, :5, :]}")
 
 print(f"Test Labels shape: {y_test.shape}")
 print(f"Sample test labels (first sample):\n{y_test[0]}")
@@ -178,7 +178,7 @@ print(f"Sample test labels (first sample):\n{y_test[0]}")
 X_test_normalized = (X_test - mean) / std
 
 print(f"Normalized testing data shape: {X_test_normalized.shape}")
-print(f"Sample normalized testing data (first 10 samples):\n{X_test_normalized[0, :5, :]}")
+print(f"Sample normalized testing data (first 5 samples):\n{X_test_normalized[0, :5, :]}")
 # =============================================================
 
 
@@ -383,9 +383,9 @@ for train_index, val_index in rkf.split(X_normalized):
         y_pred_binary = (y_pred > 0.5).astype(int)
         
         # Compute Precision, Recall, and F1-Score using scikit-learn
-        precision = precision_score(y_test, y_pred_binary, average='macro', zero_division=0)
-        recall = recall_score(y_test, y_pred_binary, average='macro', zero_division=0)
-        f1 = f1_score(y_test, y_pred_binary, average='macro', zero_division=0)
+        precision = precision_score(y_test, y_pred_binary, average='micro', zero_division=0)
+        recall = recall_score(y_test, y_pred_binary, average='micro', zero_division=0)
+        f1 = f1_score(y_test, y_pred_binary, average='micro', zero_division=0)
         
         print(f"Fold {fold_number} - Test Precision: {precision:.4f}, Recall: {recall:.4f}, F1-Score: {f1:.4f}")
         

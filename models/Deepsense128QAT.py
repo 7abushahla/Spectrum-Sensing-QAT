@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[14]:
-
 
 import numpy as np
 import h5py
@@ -33,14 +28,8 @@ from sklearn.model_selection import RepeatedKFold
 from tensorflow.keras.models import load_model
 
 
-# In[15]:
-
-
 # Suppress TensorFlow INFO, WARNING, and ERROR messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-
-# In[16]:
 
 
 DEVICE = "GPU" if tf.config.list_physical_devices('GPU') else "CPU"
@@ -71,18 +60,14 @@ BATCHSIZE = 256
 # =============================================================
 
 
-# In[18]:
-
 
 # ================== Naming Conventions ======================
 # Define naming patterns based on configuration
 metrics_filename = f"{model_type}_{N}_{training_type}_{dataset}_metrics.json"
-best_overall_model_filename = f"{model_type}_{N}_{training_type}_{dataset}_best_overall_model_INT8.tflite"  # Updated to include 'dataset'
-tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fold_{{fold_number}}_model_INT8.tflite"  # Updated to include 'dataset'
+best_overall_model_filename = f"{model_type}_{N}_{training_type}_{dataset}_best_overall_model.tflite"  # Updated to .tflite
+tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fold_{{fold_number}}_model.tflite"  # Dynamic naming per fold
 # =============================================================
 
-
-# In[19]:
 
 
 # ================== Directory Setup =========================
@@ -95,7 +80,7 @@ experiment_dir = os.path.join(
     model_type,
     f"N{N}",
     training_type,
-    dataset  # Added dataset to the path
+    dataset 
 )
 
 # Subdirectories for models, logs, metrics, and plots
@@ -201,8 +186,6 @@ print(f"Normalized testing data shape: {X_test_normalized.shape}")
 print(f"Sample normalized testing data (first 10 samples):\n{X_test_normalized[0, :5, :]}")
 # =============================================================
 
-
-# In[23]:
 
 
 # ================== Cross-Validation Setup ===================
@@ -454,9 +437,9 @@ for train_index, val_index in rkf.split(X_normalized):
             y_pred_binary = (y_pred_float32 > 0.5).astype(int)
             
             # Compute Precision, Recall, and F1-Score
-            precision = precision_score(y_test, y_pred_binary, average='macro', zero_division=0)
-            recall = recall_score(y_test, y_pred_binary, average='macro', zero_division=0)
-            f1_value = f1_score(y_test, y_pred_binary, average='macro', zero_division=0)
+            precision = precision_score(y_test, y_pred_binary, average='micro', zero_division=0)
+            recall = recall_score(y_test, y_pred_binary, average='micro', zero_division=0)
+            f1_value = f1_score(y_test, y_pred_binary, average='micro', zero_division=0)
             
             print(f"Fold {fold_number} - Test Precision: {precision:.4f}, Recall: {recall:.4f}, F1-Score: {f1_value:.4f}")
             
@@ -647,8 +630,6 @@ else:
     print("\nNo best overall model was identified. Plot generation skipped.")
 # =============================================================
 
-
-# In[ ]:
 
 
 
