@@ -41,7 +41,7 @@ print(DEVICE)
 # ================== Configuration Variables ==================
 # Experiment Configuration
 model_type = "DeepSense"      # Options: "DeepSense", "ParallelCNN"
-N = 32                        # Options: 128, 32
+N = 32                       # Options: 128, 32
 training_type = "normal"      # Options: "normal", "QAT"
 dataset = "SDR"                # Options: "SDR", "LTE"
 
@@ -55,7 +55,7 @@ tf.random.set_seed(SEED)
 N_FOLDS = 5
 N_REPEATS = 3
 EPOCHS = 100
-BATCHSIZE = 256
+BATCHSIZE = 512 #256
 # =============================================================
 
 
@@ -73,12 +73,13 @@ tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fol
 # Define base results directory
 base_results_dir = "results"
 
+# **Updated Directory Path to Include Dataset**
 experiment_dir = os.path.join(
     base_results_dir,
     model_type,
     f"N{N}",
     training_type,
-    dataset  
+    dataset  # Added dataset to the path
 )
 
 # Subdirectories for models, logs, metrics, and plots
@@ -105,9 +106,8 @@ print("\nContents of 'models_dir':", os.listdir(models_dir))
 print("Contents of 'logs_dir':", os.listdir(logs_dir))
 print("Contents of 'metrics_dir':", os.listdir(metrics_dir))
 print("Contents of 'plots_dir':", os.listdir(plots_dir))
-# ===
+# =============================================================
 
-# In[92]:
 
 
 # ================== Custom F1 Metric ==========================
@@ -132,12 +132,11 @@ def F1_Score(y_true, y_pred):
 # =============================================================
 
 
-# In[93]:
 
 
 # ================== Data Loading =============================
 # Load training data from the .h5 file
-dset = h5py.File("./sdr_wifi_train_32buf.hdf5", 'r')
+dset = h5py.File("./sdr_wifi_train_32_50k.hdf5", 'r')
 X = dset['X'][()]  # Shape: (287971, 32, 2)
 y = dset['y'][()]  # Shape: (287971,)
 
@@ -161,17 +160,16 @@ print(f"Sample normalized training data:\n{X_normalized[0, :5, :]}")
 # =============================================================
 
 
-# In[94]:
 
 
 # ================== Load Testing Data ========================
 # Load testing data from the .h5 file
-test_dset = h5py.File("./sdr_wifi_test_32buf.hdf5", 'r')
+test_dset = h5py.File("./sdr_wifi_test_32_50k.hdf5", 'r')
 X_test = test_dset['X'][()]
 y_test = test_dset['y'][()]
 
 print(f"Testing data shape: {X_test.shape}")
-print(f"Sample testing data (first 10 samples):\n{X_test[0, :5, :]}")
+print(f"Sample testing data (first 5 samples):\n{X_test[0, :5, :]}")
 
 print(f"Test Labels shape: {y_test.shape}")
 print(f"Sample test labels (first sample):\n{y_test[0]}")
@@ -180,9 +178,8 @@ print(f"Sample test labels (first sample):\n{y_test[0]}")
 X_test_normalized = (X_test - mean) / std
 
 print(f"Normalized testing data shape: {X_test_normalized.shape}")
-print(f"Sample normalized testing data (first 10 samples):\n{X_test_normalized[0, :5, :]}")
+print(f"Sample normalized testing data (first 5 samples):\n{X_test_normalized[0, :5, :]}")
 # =============================================================
-
 
 
 # ================== Cross-Validation Setup ===================
@@ -203,6 +200,10 @@ test_precisions = []
 test_recalls = []
 test_f1_scores = []
 
+# List to store per-channel metrics for each fold
+channel_metrics_folds = []
+
+
 # Variables to track the best overall model based on validation F1-score
 best_overall_f1 = -1
 best_overall_test_f1 = -1  # Initialize to track test F1-score for the best model
@@ -217,7 +218,9 @@ tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fol
 # Fold counter
 total_folds = n_splits * n_repeats
 fold_number = 1
-# =============================================================
+
+# Get number of channels from test labels (assumes multi-label classification)
+num_channels = y_test.shape[1]
 
 # ================== Training Loop =============================
 for train_index, val_index in rkf.split(X_normalized):
@@ -396,10 +399,24 @@ for train_index, val_index in rkf.split(X_normalized):
         test_precisions.append(precision)
         test_recalls.append(recall)
         test_f1_scores.append(f1)
+        
+        # ----------------- Compute Per-Channel Metrics ------------------
+        fold_channel_metrics = []  # This fold's metrics for each channel
+        for channel in range(num_channels):
+            precision_ch = precision_score(
+                y_test[:, channel], y_pred_binary[:, channel],
+                average='binary', zero_division=0)
+            recall_ch = recall_score(
+                y_test[:, channel], y_pred_binary[:, channel],
+                average='binary', zero_division=0)
+            f1_ch = f1_score(
+                y_test[:, channel], y_pred_binary[:, channel],
+                average='binary', zero_division=0)
+            fold_channel_metrics.append([precision_ch, recall_ch, f1_ch])
+        # Convert to NumPy array (shape: [num_channels, 3]) and store it
+        channel_metrics_folds.append(np.array(fold_channel_metrics))
     else:
         print(f"Fold {fold_number} - Skipping test evaluation due to TFLite conversion failure.")
-    
-    # =============================================================
     
     # ================== Best Overall Model ======================
     # Evaluate validation F1-score from training history
@@ -459,6 +476,23 @@ avg_test_f1 = np.mean(test_f1_scores) if test_f1_scores else 0
 std_test_f1 = np.std(test_f1_scores) if test_f1_scores else 0
 # =============================================================
 
+# ================== Aggregate Per-Channel Metrics ============================
+# Stack the per-fold metrics into an array of shape (num_folds, num_channels, 3)
+if channel_metrics_folds:
+    all_channel_metrics = np.stack(channel_metrics_folds, axis=0)
+    # Compute mean and std across folds for each channel (axis=0)
+    mean_channel_metrics = np.mean(all_channel_metrics, axis=0)  # shape: [num_channels, 3]
+    std_channel_metrics = np.std(all_channel_metrics, axis=0)
+else:
+    mean_channel_metrics = np.zeros((num_channels, 3))
+    std_channel_metrics = np.zeros((num_channels, 3))
+
+# Also compute micro-average metrics across folds
+mean_micro_precision = np.mean(test_precisions) if test_precisions else 0
+mean_micro_recall = np.mean(test_recalls) if test_recalls else 0
+mean_micro_f1 = np.mean(test_f1_scores) if test_f1_scores else 0
+# =============================================================
+
 # ================== Metrics Summary ==========================
 # Prepare the metrics summary
 metrics_summary = {
@@ -492,6 +526,28 @@ metrics_summary = {
                 'std': float(std_test_f1)
             }
         },
+        # Add per-channel metrics after test metrics
+        'per_channel_metrics': {
+            **{
+                f'Channel-{i+1}': {
+                    'Precision': {'mean': float(mean_channel_metrics[i, 0]),
+                                  'std': float(std_channel_metrics[i, 0])},
+                    'Recall': {'mean': float(mean_channel_metrics[i, 1]),
+                               'std': float(std_channel_metrics[i, 1])},
+                    'F1-score': {'mean': float(mean_channel_metrics[i, 2]),
+                                 'std': float(std_channel_metrics[i, 2])},
+                    'Occurrences': int(y_test.sum(axis=0)[i])
+                }
+                for i in range(num_channels)
+            },
+            'Micro Average': {
+                'Precision': float(mean_micro_precision),
+                'Recall': float(mean_micro_recall),
+                'F1-score': float(mean_micro_f1),
+                'Occurrences': int(np.sum(y_test.sum(axis=0)))
+            }
+        },
+        # Place the best overall model at the end
         'best_overall_model': {
             'model_path': best_overall_model_path,
             'validation_f1_score': float(best_overall_f1),
@@ -499,9 +555,6 @@ metrics_summary = {
         }
     }
 }
-
-# print("\nCross-Validation Metrics Summary:")
-# print(json.dumps(metrics_summary, indent=4))
 # =============================================================
 
 # ================== Save Metrics to JSON =====================
@@ -515,6 +568,7 @@ with open(metrics_file_path, 'w') as json_file:
 print(f"\nFinal aggregated metrics have been saved to '{metrics_file_path}'.")
 print(f"Best overall TFLite model saved at: '{best_overall_model_path}'")
 # =============================================================
+
 
 # ================== Generate and Save Plots for Best Overall Model ============
 if best_overall_history is not None:
@@ -574,7 +628,58 @@ if best_overall_history is not None:
     plt.savefig(os.path.join(plots_dir, f1_score_plot_filename))
     plt.close()
     
-    print(f"Plots for the best overall model have been saved to '{plots_dir}'.")
+    print(f"Standard training plots for the best overall model have been saved to '{plots_dir}'.")
+    
+    # ================== Generate Heatmap for Per-Channel Metrics ====================
+    print("\nGenerating per-channel heatmap for the best overall model...")
+    
+    # Load the best overall TFLite model
+    interpreter = tf.lite.Interpreter(model_path=best_overall_model_path)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    
+    # Run inference on the entire test set using the best overall model
+    y_pred_best = []
+    for i in range(0, len(X_test_normalized), 1):
+        X_batch = X_test_normalized[i:i + 1]
+        interpreter.set_tensor(input_details[0]['index'], X_batch.astype(np.float32))
+        interpreter.invoke()
+        y_pred_best.append(interpreter.get_tensor(output_details[0]['index']))
+    y_pred_best = np.concatenate(y_pred_best, axis=0)
+    y_pred_best_binary = (y_pred_best > 0.5).astype(int)
+    
+    # Compute per-channel metrics for the best overall model
+    best_model_channel_metrics = []
+    for channel in range(num_channels):
+        precision_ch = precision_score(
+            y_test[:, channel], y_pred_best_binary[:, channel],
+            average='binary', zero_division=0)
+        recall_ch = recall_score(
+            y_test[:, channel], y_pred_best_binary[:, channel],
+            average='binary', zero_division=0)
+        f1_ch = f1_score(
+            y_test[:, channel], y_pred_best_binary[:, channel],
+            average='binary', zero_division=0)
+        best_model_channel_metrics.append([precision_ch, recall_ch, f1_ch])
+    best_model_channel_metrics = np.array(best_model_channel_metrics)
+    
+    # Create a heatmap (reversed order so Channel-4 appears on top, for example)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    sns.heatmap(best_model_channel_metrics[::-1], annot=True, fmt=".4f", cmap="Blues",
+                xticklabels=['Precision', 'Recall', 'F1-score'],
+                yticklabels=[f'Channel-{i+1} ({int(y_test.sum(axis=0)[i])})' for i in range(num_channels-1, -1, -1)],
+                cbar=True)
+    plt.title("SDR Dataset Performance Metrics (Best Overall Model)")
+    plt.ylabel("Channels (# of Occurrences)")
+    plt.xlabel("Metrics")
+    
+    # Adjust layout so that nothing is cut off
+    plt.tight_layout()
+    heatmap_path = os.path.join(plots_dir, "Best_Model_Per_Channel_Heatmap.png")
+    plt.savefig(heatmap_path, bbox_inches='tight')
+    plt.close()
+    print(f"Heatmap saved to '{heatmap_path}'.")
 else:
     print("\nNo best overall model was identified. Plot generation skipped.")
 # =============================================================
