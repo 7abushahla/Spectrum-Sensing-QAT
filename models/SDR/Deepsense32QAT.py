@@ -40,7 +40,7 @@ print(DEVICE)
 # ================== Configuration Variables ==================
 # Experiment Configuration
 model_type = "DeepSense"      # Options: "DeepSense", "ParallelCNN"
-N = 128                       # Options: 128, 32
+N = 32                       # Options: 128, 32
 training_type = "QAT"         # Fixed to "QAT" for this script
 dataset = "SDR"               # Options: "SDR", "LTE"
 
@@ -135,7 +135,7 @@ def F1_Score(y_true, y_pred):
 
 # ================== Data Loading =============================
 # Load training data from the .h5 file
-dset = h5py.File("./sdr_wifi_train_128_50k.hdf5", 'r')
+dset = h5py.File("./sdr_wifi_train_32_50k.hdf5", 'r')
 X = dset['X'][()]  # Shape: (287971, 32, 2)
 y = dset['y'][()]  # Shape: (287971,)
 
@@ -162,7 +162,7 @@ print(f"Sample normalized training data:\n{X_normalized[0, :5, :]}")
 
 # ================== Load Testing Data ========================
 # Load testing data from the .h5 file
-test_dset = h5py.File("./sdr_wifi_test_128_50k.hdf5", 'r')
+test_dset = h5py.File("./sdr_wifi_test_32_50k.hdf5", 'r')
 X_test = test_dset['X'][()]
 y_test = test_dset['y'][()]
 
@@ -445,7 +445,7 @@ for train_index, val_index in rkf.split(X_normalized):
             # Append test metrics to the aggregated lists
         test_precisions.append(precision)
         test_recalls.append(recall)
-        test_f1_scores.append(f1)
+        test_f1_scores.append(f1_value)
         
         # ----------------- Compute Per-Channel Metrics ------------------
         fold_channel_metrics = []  # This fold's metrics for each channel
