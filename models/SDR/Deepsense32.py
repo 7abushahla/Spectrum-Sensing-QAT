@@ -55,7 +55,7 @@ tf.random.set_seed(SEED)
 N_FOLDS = 5
 N_REPEATS = 3
 EPOCHS = 100
-BATCHSIZE = 512 #256
+BATCHSIZE = 256
 # =============================================================
 
 
@@ -112,23 +112,23 @@ print("Contents of 'plots_dir':", os.listdir(plots_dir))
 
 # ================== Custom F1 Metric ==========================
 def F1_Score(y_true, y_pred):
-    # Cast the y_true and y_pred to the right shape (binary for multi-label classification)
+    # Cast inputs to float32
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred > 0.5, tf.float32)
-    
-    # Precision calculation
-    tp = tf.reduce_sum(tf.cast(y_true * y_pred, tf.float32), axis=0)
-    predicted_positives = tf.reduce_sum(tf.cast(y_pred, tf.float32), axis=0)
-    actual_positives = tf.reduce_sum(tf.cast(y_true, tf.float32), axis=0)
 
-    precision = tp / (predicted_positives + tf.keras.backend.epsilon())
-    recall = tp / (actual_positives + tf.keras.backend.epsilon())
+    # Compute true positives, false positives, and false negatives
+    tp = tf.reduce_sum(y_true * y_pred)
+    fp = tf.reduce_sum((1 - y_true) * y_pred)
+    fn = tf.reduce_sum(y_true * (1 - y_pred))
 
-    # F1 calculation
+    # Compute micro-averaged precision and recall
+    precision = tp / (tp + fp + tf.keras.backend.epsilon())
+    recall = tp / (tp + fn + tf.keras.backend.epsilon())
+
+    # Compute F1-score
     f1 = 2 * ((precision * recall) / (precision + recall + tf.keras.backend.epsilon()))
-    
-    # Mean of F1 across all classes
-    return tf.reduce_mean(f1)
+
+    return f1  # No need to take mean across classes (micro-averaged already)
 # =============================================================
 
 

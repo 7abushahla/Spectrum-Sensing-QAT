@@ -54,7 +54,7 @@ tf.random.set_seed(SEED)
 N_FOLDS = 5
 N_REPEATS = 3
 EPOCHS = 100
-BATCHSIZE = 512
+BATCHSIZE = 256
 # =============================================================
 
 
@@ -111,23 +111,23 @@ print("Contents of 'plots_dir':", os.listdir(plots_dir))
 
 # ================== Custom F1 Metric ==========================
 def F1_Score(y_true, y_pred):
-    # Cast the y_true and y_pred to the right shape (binary for multi-label classification)
+    # Cast inputs to float32
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred > 0.5, tf.float32)
-    
-    # Precision calculation
-    tp = tf.reduce_sum(tf.cast(y_true * y_pred, tf.float32), axis=0)
-    predicted_positives = tf.reduce_sum(tf.cast(y_pred, tf.float32), axis=0)
-    actual_positives = tf.reduce_sum(tf.cast(y_true, tf.float32), axis=0)
 
-    precision = tp / (predicted_positives + tf.keras.backend.epsilon())
-    recall = tp / (actual_positives + tf.keras.backend.epsilon())
+    # Compute true positives, false positives, and false negatives
+    tp = tf.reduce_sum(y_true * y_pred)
+    fp = tf.reduce_sum((1 - y_true) * y_pred)
+    fn = tf.reduce_sum(y_true * (1 - y_pred))
 
-    # F1 calculation
+    # Compute micro-averaged precision and recall
+    precision = tp / (tp + fp + tf.keras.backend.epsilon())
+    recall = tp / (tp + fn + tf.keras.backend.epsilon())
+
+    # Compute F1-score
     f1 = 2 * ((precision * recall) / (precision + recall + tf.keras.backend.epsilon()))
-    
-    # Mean of F1 across all classes
-    return tf.reduce_mean(f1)
+
+    return f1  # No need to take mean across classes (micro-averaged already)
 # =============================================================
 
 
@@ -223,7 +223,7 @@ num_channels = y_test.shape[1]
 
 # ================== Representative Dataset =====================
 def representative_data_gen():
-    for input_value in tf.data.Dataset.from_tensor_slices(X_normalized).batch(1).take(100):
+    for input_value in tf.data.Dataset.from_tensor_slices(X_normalized).batch(1).take(500):
         yield [input_value]
 # =============================================================
 
@@ -678,51 +678,66 @@ if best_overall_history is not None:
     
     # ================== Generate Heatmap for Per-Channel Metrics ====================
     print("\nGenerating per-channel heatmap for the best overall model...")
-    
-    # Load the best overall TFLite model
+
+    # Load the best overall TFLite int8 (quantized) model
     interpreter = tf.lite.Interpreter(model_path=best_overall_model_path)
     interpreter.allocate_tensors()
+
+    # Get input and output details
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
-    
-    # Run inference on the entire test set using the best overall model
-    y_pred_best = []
-    for i in range(0, len(X_test_normalized), 1):
-        X_batch = X_test_normalized[i:i + 1]
-        interpreter.set_tensor(input_details[0]['index'], X_batch.astype(np.float32))
+
+    # Function to quantize inputs from FLOAT32 to INT8
+    def quantize_input(X, scale, zero_point):
+        return np.round(X / scale + zero_point).astype(np.int8)
+
+    # Retrieve quantization parameters for inputs and outputs
+    input_scale, input_zero_point = input_details[0]['quantization']
+    output_scale, output_zero_point = output_details[0]['quantization']
+
+    # Define inference function using quantized inputs
+    def run_inference_tflite_quant(X):
+        # Quantize input
+        X_int8 = quantize_input(X, input_scale, input_zero_point)
+        interpreter.set_tensor(input_details[0]['index'], X_int8)
         interpreter.invoke()
-        y_pred_best.append(interpreter.get_tensor(output_details[0]['index']))
-    y_pred_best = np.concatenate(y_pred_best, axis=0)
-    y_pred_best_binary = (y_pred_best > 0.5).astype(int)
-    
-    # Compute per-channel metrics for the best overall model
+        # Get int8 output and return it
+        return interpreter.get_tensor(output_details[0]['index'])
+
+    # Run inference on the entire test set using the int8 quantized model
+    y_pred = []
+    for i in range(0, len(X_test_normalized)):
+        X_batch = X_test_normalized[i:i+1]  # Ensure a batch dimension
+        pred = run_inference_tflite_quant(X_batch)
+        y_pred.append(pred)
+    y_pred = np.concatenate(y_pred, axis=0)
+
+    # Dequantize outputs to FLOAT32
+    y_pred_float32 = (y_pred.astype(np.float32) - output_zero_point) * output_scale
+
+    # Convert probabilities to binary predictions
+    y_pred_binary = (y_pred_float32 > 0.5).astype(int)
+
+    # Compute per-channel metrics for the best overall model (using quantized inference)
     best_model_channel_metrics = []
     for channel in range(num_channels):
-        precision_ch = precision_score(
-            y_test[:, channel], y_pred_best_binary[:, channel],
-            average='binary', zero_division=0)
-        recall_ch = recall_score(
-            y_test[:, channel], y_pred_best_binary[:, channel],
-            average='binary', zero_division=0)
-        f1_ch = f1_score(
-            y_test[:, channel], y_pred_best_binary[:, channel],
-            average='binary', zero_division=0)
+        precision_ch = precision_score(y_test[:, channel], y_pred_binary[:, channel], average='binary', zero_division=0)
+        recall_ch = recall_score(y_test[:, channel], y_pred_binary[:, channel], average='binary', zero_division=0)
+        f1_ch = f1_score(y_test[:, channel], y_pred_binary[:, channel], average='binary', zero_division=0)
         best_model_channel_metrics.append([precision_ch, recall_ch, f1_ch])
     best_model_channel_metrics = np.array(best_model_channel_metrics)
-    
-    # Create a heatmap (reversed order so Channel-4 appears on top, for example)
+
+    # Create a heatmap (reversed order so that, for example, Channel-4 appears on top)
     fig, ax = plt.subplots(figsize=(8, 4))
     sns.heatmap(best_model_channel_metrics[::-1], annot=True, fmt=".4f", cmap="Blues",
                 xticklabels=['Precision', 'Recall', 'F1-score'],
                 yticklabels=[f'Channel-{i+1} ({int(y_test.sum(axis=0)[i])})' for i in range(num_channels-1, -1, -1)],
                 cbar=True)
-    plt.title("SDR Dataset Performance Metrics (Best Overall Model)")
+    plt.title("SDR Dataset Performance Metrics (Best Overall Model - Quantized)")
     plt.ylabel("Channels (# of Occurrences)")
     plt.xlabel("Metrics")
-    
-    # Adjust layout so that nothing is cut off
     plt.tight_layout()
-    heatmap_path = os.path.join(plots_dir, "Best_Model_Per_Channel_Heatmap.png")
+    heatmap_path = os.path.join(plots_dir, "Best_Model_Per_Channel_Heatmap_INT8.png")
     plt.savefig(heatmap_path, bbox_inches='tight')
     plt.close()
     print(f"Heatmap saved to '{heatmap_path}'.")
