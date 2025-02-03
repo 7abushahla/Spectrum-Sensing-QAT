@@ -40,7 +40,7 @@ print(DEVICE)
 # ================== Configuration Variables ==================
 # Experiment Configuration
 model_type = "DeepSense"      # Options: "DeepSense", "ParallelCNN"
-N = 32                       # Options: 128, 32
+N = 128                       # Options: 128, 32
 training_type = "QAT"         # Fixed to "QAT" for this script
 dataset = "LTE_SNR_10"               # Options: "SDR", "LTE"
 
@@ -135,7 +135,7 @@ def F1_Score(y_true, y_pred):
 
 # ================== Data Loading =============================
 # Load training data from the .h5 file
-dset = h5py.File("./lte_10_32_train.h5", 'r')
+dset = h5py.File("./lte_10_128_train.h5", 'r')
 X = dset['X'][()]  # Shape: (287971, 32, 2)
 X = np.transpose(X, (2, 1, 0))  # New shape: (471860, 128, 2)
 
@@ -166,7 +166,7 @@ print(f"Sample normalized training data:\n{X_normalized[0, :10, :]}")
 
 # ================== Load Testing Data ========================
 # Load testing data from the .h5 file
-test_dset = h5py.File("./lte_10_32_test.h5", 'r')
+test_dset = h5py.File("./lte_10_128_test.h5", 'r')
 X_test = test_dset['X'][()]
 X_test = np.transpose(X_test, (2, 1, 0))  # Same for test data
 y_test = test_dset['y'][()]

@@ -3,7 +3,7 @@ import numpy as np
 import h5py
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Dense, Conv1D, Conv2D, MaxPooling1D, LeakyReLU, Flatten, Input, Dropout, Lambda, Reshape, MaxPooling2D, ReLU
+from tensorflow.keras.layers import Dense, Conv1D, Conv2D, MaxPooling1D, LeakyReLU, ReLU, Flatten, Input, Dropout, Lambda, Reshape, MaxPooling2D, Add, Layer
 from tensorflow.keras.models import Model
 import argparse
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint, TensorBoard
@@ -27,7 +27,6 @@ import shutil  # For copying files
 from sklearn.model_selection import RepeatedKFold
 from tensorflow.keras.models import load_model
 
-
 # Suppress TensorFlow INFO, WARNING, and ERROR messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -39,10 +38,10 @@ print(DEVICE)
 
 # ================== Configuration Variables ==================
 # Experiment Configuration
-model_type = "DeepSense"      # Options: "DeepSense", "ParallelCNN"
+model_type = "ParallelCNN"      # Options: "DeepSense", "ParallelCNN"
 N = 32                       # Options: 128, 32
-training_type = "QAT"         # Fixed to "QAT" for this script
-dataset = "LTE_SNR_10"               # Options: "SDR", "LTE"
+training_type = "normal"      # Options: "normal", "QAT"
+dataset = "LTE_SNR_10"                # Options: "SDR", "LTE"
 
 # Reproducibility Settings
 SEED = 42
@@ -51,9 +50,9 @@ random.seed(SEED)
 tf.random.set_seed(SEED)
 
 # Experiment Settings
-N_FOLDS = 2
-N_REPEATS = 1
-EPOCHS = 1
+N_FOLDS = 5
+N_REPEATS = 3
+EPOCHS = 150
 BATCHSIZE = 256
 # =============================================================
 
@@ -72,13 +71,13 @@ tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fol
 # Define base results directory
 base_results_dir = "results"
 
-# Construct the directory path
+# **Updated Directory Path to Include Dataset**
 experiment_dir = os.path.join(
     base_results_dir,
     model_type,
     f"N{N}",
     training_type,
-    dataset 
+    dataset  # Added dataset to the path
 )
 
 # Subdirectories for models, logs, metrics, and plots
@@ -110,6 +109,7 @@ print("Contents of 'plots_dir':", os.listdir(plots_dir))
 
 
 # ================== Custom F1 Metric ==========================
+@tf.keras.utils.register_keras_serializable()
 def F1_Score(y_true, y_pred):
     # Cast inputs to float32
     y_true = tf.cast(y_true, tf.float32)
@@ -130,8 +130,40 @@ def F1_Score(y_true, y_pred):
     return f1  # No need to take mean across classes (micro-averaged already)
 # =============================================================
 
+# ================== Custom Slice Layer ==========================
+@tf.keras.utils.register_keras_serializable()
+class SliceLayer(Layer):
+    def __init__(self, start, end, axis=-1, **kwargs):
+        """
+        Custom layer to slice the input tensor.
 
+        Args:
+            start (int): Starting index for slicing.
+            end (int): Ending index for slicing.
+            axis (int): Axis along which to slice.
+            **kwargs: Additional keyword arguments.
+        """
+        super(SliceLayer, self).__init__(**kwargs)
+        self.start = start
+        self.end = end
+        self.axis = axis
 
+    def call(self, inputs):
+        # Create dynamic slice indices
+        slice_indices = [slice(None)] * len(inputs.shape)
+        slice_indices[self.axis] = slice(self.start, self.end)
+        return inputs[tuple(slice_indices)]
+
+    def get_config(self):
+        config = super(SliceLayer, self).get_config()
+        config.update({
+            'start': self.start,
+            'end': self.end,
+            'axis': self.axis
+        })
+        return config
+
+# =============================================================
 
 # ================== Data Loading =============================
 # Load training data from the .h5 file
@@ -148,6 +180,7 @@ print(f"Sample Transposed Data (index 1000):\n{X[1000, :5, :]}")
 print(f"Sample Transposed Data (index 100000):\n{X[100000, :5, :]}")
 
 print(f"Labels shape: {y.shape}")
+
 # Normalize the training data
 # Calculate mean and standard deviation across the dataset for each channel
 mean = np.mean(X, axis=(0, 1))  # Mean for each channel
@@ -160,8 +193,6 @@ X_normalized = (X - mean) / std
 print(f"Training data shape: {X_normalized.shape}")
 print(f"Sample normalized training data:\n{X_normalized[0, :10, :]}")
 # =============================================================
-
-
 
 
 # ================== Load Testing Data ========================
@@ -185,7 +216,6 @@ X_test_normalized = (X_test - mean) / std
 print(f"Normalized testing data shape: {X_test_normalized.shape}")
 print(f"Sample normalized testing data (first 5 samples):\n{X_normalized[0, :10, :]}")
 # =============================================================
-
 
 
 # ================== Cross-Validation Setup ===================
@@ -219,7 +249,7 @@ best_overall_model_path = os.path.join(models_dir, best_overall_model_filename)
 best_overall_history = None
 
 # Define TFLite model path pattern per fold
-tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fold_{{fold_number}}_model_INT8.tflite"
+tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fold_{{fold_number}}_model.tflite"
 
 # Fold counter
 total_folds = n_splits * n_repeats
@@ -227,12 +257,6 @@ fold_number = 1
 
 # Get number of channels from test labels (assumes multi-label classification)
 num_channels = y_test.shape[1]
-
-# ================== Representative Dataset =====================
-def representative_data_gen():
-    for input_value in tf.data.Dataset.from_tensor_slices(X_normalized.astype(np.float32)).batch(1).take(100):
-        yield [input_value]  # Ensure it remains a list as expected by TFLite
-# =============================================================
 
 # ================== Training Loop =============================
 for train_index, val_index in rkf.split(X_normalized):
@@ -243,58 +267,61 @@ for train_index, val_index in rkf.split(X_normalized):
     y_train_fold, y_val_fold = y[train_index], y[val_index]
     
     print(f"Train shape: {X_train_fold.shape}, Validation shape: {X_val_fold.shape}")
+    print(f"Train Labels shape: {y_train_fold.shape}, Validation Labels shape: {y_val_fold.shape}")
     
     # ================== Model Building ========================
     # Define model parameters
-    n_classes = y.shape[1]       # number of classes for SDR case
-    dim = X_normalized.shape[1]  # Number of I/Q samples being taken as input
+    M = y.shape[1]       # number of classes for multi-label classification
+    N = X_normalized.shape[1]  # Number of I/Q samples
     n_channels = X_normalized.shape[2]  # Number of channels (I and Q)
     
     # Build the model
-    inputs = Input(shape=(dim, n_channels), dtype=tf.float32, name='input_layer')
+    inputs = Input(shape=(N, n_channels), name='input_layer')
     
     # Reshape input to fit Conv2D requirements: (1, dim, n_channels)
-    reshaped_inputs = Reshape((1, dim, n_channels))(inputs)
+    reshaped_inputs = Reshape((1, N, n_channels), name='reshape')(inputs)
     
-    # First Conv stack
-    x = Conv2D(16, (1, 3), name='conv1')(reshaped_inputs)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = Conv2D(16, (1, 3), name='conv2')(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = MaxPooling2D(pool_size=(1, 2), strides=(1, 2), name='pool1')(x)
-    x = Dropout(0.3)(x)  # Dropout added after the first stack
-    
-    # Second Conv stack
-    x = Conv2D(32, (1, 5), name='conv3')(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = Conv2D(32, (1, 5), name='conv4')(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = MaxPooling2D(pool_size=(1, 2), strides=(1, 2), name='pool2')(x)
-    x = Dropout(0.3)(x)  # Dropout added after the second stack
-    
-    # Fully connected layer
-    x = Flatten()(x)
-    x = Dense(64, name='dense1')(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    
-    # Output layer
-    outputs = Dense(n_classes, activation='sigmoid', name='out')(x)
-    
-    # Create base model
-    model = Model(inputs=inputs, outputs=outputs)
-    # =============================================================
-    
-    # ================== Quantization Aware Training ============
-    # Apply QAT to the model
-    qat_model = tfmot.quantization.keras.quantize_model(model)
-    print("Converted model to QAT.")
+    # Split the input into two halves along the width (dim) dimension
+    I1 = SliceLayer(start=0, end=int(N/2), axis=2, name='I1')(reshaped_inputs)  # First half
+    I2 = SliceLayer(start=int(N/2), end=N, axis=2, name='I2')(reshaped_inputs)  # Second half
+
+    # CNN1 Branch (Processing I1)
+    # Here the kernel_size is (3,1) so that the convolution acts over the N dimension only.
+    C1 = Conv2D(filters=8, kernel_size=(1, 3), strides=(1, 1), padding='valid')(I1)
+    C1 = LeakyReLU(alpha=0.2)(C1)
+    S1 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2))(C1)
+
+    C2 = Conv2D(filters=16, kernel_size=(1, 5), strides=(1, 2), padding='valid')(S1)
+    C2 = LeakyReLU(alpha=0.2)(C2)
+    S2 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2))(C2)
+
+    # CNN2 Branch (Processing I2)
+    C3 = Conv2D(filters=8, kernel_size=(1, 3), strides=(1, 1), padding='valid')(I2)
+    C3 = LeakyReLU(alpha=0.2)(C3)
+    S3 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2))(C3)
+
+    C4 = Conv2D(filters=16, kernel_size=(1, 5), strides=(1, 2), padding='valid')(S3)
+    C4 = LeakyReLU(alpha=0.2)(C4)
+    S4 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2))(C4)
+
+    # Combining Outputs (element-wise summation)
+    A1 = Add()([S2, S4])
+    A1 = Flatten()(A1)
+
+    # Fully Connected Layers
+    F1 = Dense(64)(A1)
+    F1 = LeakyReLU(alpha=0.2)(F1)
+    F2 = Dense(M, activation='sigmoid')(F1)  # Multi-label classification
+
+    # Creating Model
+    model = Model(inputs=inputs, outputs=F2, name="ParallelCNN_2D")
     # =============================================================
     
     # ================== Model Compilation =====================
-    # Compile the QAT model
-    adam = tf.keras.optimizers.Adam(learning_rate=0.001)
-    
-    qat_model.compile(
+    # Compile the model
+    adam = tf.keras.optimizers.Adam(learning_rate=1e-3)
+
+    model.compile(
         loss='binary_crossentropy', 
         optimizer=adam, 
         metrics=[
@@ -313,7 +340,7 @@ for train_index, val_index in rkf.split(X_normalized):
     )
     tensorboard_callback = TensorBoard(log_dir=fold_log_dir, histogram_freq=1)
     
-    # Define ModelCheckpoint to save the best QAT model based on validation F1-score
+    # Define ModelCheckpoint to save the best model based on validation F1-score
     checkpoint_filename = f"{model_type}_{N}_{training_type}_{dataset}_fold_{fold_number}_best_model.h5"
     checkpoint_path = os.path.join(models_dir, checkpoint_filename)
     model_checkpoint = ModelCheckpoint(
@@ -325,13 +352,13 @@ for train_index, val_index in rkf.split(X_normalized):
     )
     
     # Other callbacks
-    lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
+    # lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
     # =============================================================
     
     # ================== Model Training =========================
-    # Train the QAT model
-    history = qat_model.fit(
+    # Train the model
+    history = model.fit(
         x=X_train_fold, 
         y=y_train_fold, 
         validation_data=(X_val_fold, y_val_fold),
@@ -339,120 +366,83 @@ for train_index, val_index in rkf.split(X_normalized):
         epochs=EPOCHS, 
         verbose=1, 
         shuffle=True,  
-        callbacks=[lr_scheduler, early_stopping, model_checkpoint, tensorboard_callback]
+        callbacks=[early_stopping, model_checkpoint, tensorboard_callback]
     )
     # =============================================================
     
     # ================== Model Evaluation ========================
-    # Load the best QAT model for this fold within quantize_scope
-    try:
-        with tfmot.quantization.keras.quantize_scope():
-            best_model_fold = load_model(
-                checkpoint_path, 
-                custom_objects={'F1_Score': F1_Score}
-            )
-    except ValueError as e:
-        print(f"Fold {fold_number} - Error loading model: {e}")
-        best_model_fold = None
+    # Load the best model for this fold
+    best_model_fold = load_model(
+        checkpoint_path
+    )
     
-    if best_model_fold is not None:
-        # ================== TFLite Conversion ======================
-        # Initialize the TFLite converter with the quantization-aware model
-        converter = tf.lite.TFLiteConverter.from_keras_model(best_model_fold)
+    # Convert the best model to TFLite
+    converter = tf.lite.TFLiteConverter.from_keras_model(best_model_fold)
+    try:
+        tflite_model = converter.convert()
+        # Define the TFLite model path for this fold
+        current_fold_tflite_path = os.path.join(
+            models_dir, 
+            tflite_model_filename_pattern.format(fold_number=fold_number)
+        )
+        # Save the TFLite model
+        with open(current_fold_tflite_path, "wb") as f:
+            f.write(tflite_model)
+        print(f"Converted TFLite model saved to {current_fold_tflite_path}")
+    except Exception as e:
+        print(f"Fold {fold_number} - TFLite conversion failed with error: {e}")
+        current_fold_tflite_path = None
+    
+    if current_fold_tflite_path and os.path.exists(current_fold_tflite_path):
+        # Load the TFLite model and allocate tensors
+        interpreter = tf.lite.Interpreter(model_path=current_fold_tflite_path)
+        interpreter.allocate_tensors()
         
-        # Set optimization flag to enable quantization
-        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        # Get input and output details
+        input_details = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
         
-        # Provide the representative dataset for calibration
-        converter.representative_dataset = representative_data_gen
+        # Function to run inference with TFLite
+        def run_inference_tflite(interpreter, X):
+            # Assuming single input
+            input_index = input_details[0]['index']
+            output_index = output_details[0]['index']
+            
+            # Ensure X has the right shape (batch_size, dim, n_channels)
+            if len(X.shape) == 2:
+                X = np.expand_dims(X, axis=0)
+            
+            interpreter.set_tensor(input_index, X.astype(np.float32))
+            interpreter.invoke()
+            output = interpreter.get_tensor(output_index)
+            return output
         
-        # Specify that we want int8 operations for inputs and outputs
-        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-        converter.inference_input_type = tf.int8
-        converter.inference_output_type = tf.int8  # Set to int8
+        # Evaluate the model on the test set
+        y_pred = []
+        batch_size = 1  # Adjust as needed
         
-        # Perform the conversion
-        try:
-            quantized_tflite_model = converter.convert()
-            # Define the TFLite model path for this fold
-            current_fold_tflite_path = os.path.join(
-                models_dir, 
-                tflite_model_filename_pattern.format(fold_number=fold_number)
-            )
-            # Save the quantized model to a file
-            with open(current_fold_tflite_path, "wb") as f:
-                f.write(quantized_tflite_model)
-            print(f"Quantized TFLite model saved to {current_fold_tflite_path}")
-        except ValueError as e:
-            print(f"Fold {fold_number} - TFLite conversion failed with error: {e}")
-            quantized_tflite_model = None  # Handle conversion failure
+        for i in range(0, len(X_test_normalized), batch_size):
+            X_batch = X_test_normalized[i:i + batch_size]
+            predictions = run_inference_tflite(interpreter, X_batch)
+            y_pred.append(predictions)
         
-        # If conversion was successful, proceed to evaluation
-        if quantized_tflite_model:
-            # Load the TFLite model and allocate tensors
-            interpreter = tf.lite.Interpreter(model_path=current_fold_tflite_path)
-            interpreter.allocate_tensors()
-            
-            # Get input and output details
-            input_details = interpreter.get_input_details()
-            output_details = interpreter.get_output_details()
-            
-            # Function to quantize inputs from FLOAT32 to INT8
-            def quantize_input(X, scale, zero_point):
-                return np.round(X / scale + zero_point).astype(np.int8)
-            
-            # Retrieve scale and zero point from the model's input details (calculated during training quantization)
-            input_scale, input_zero_point = input_details[0]['quantization']
-            
-            # Retrieve scale and zero point for outputs
-            output_scale, output_zero_point = output_details[0]['quantization']
-            
-            # Define inference function
-            def run_inference_tflite(X):
-                X = X.astype(np.float32)  # Ensure float32 type
-                X_int8 = quantize_input(X, input_scale, input_zero_point)
-                interpreter.set_tensor(input_details[0]['index'], X_int8)
-                interpreter.invoke()
-                output = interpreter.get_tensor(output_details[0]['index'])
-                return output
-            
-            # Evaluate the model on the test set
-            y_pred = []
-            batch_size = 1  # Adjust batch size as needed
-            
-            for i in range(0, len(X_test_normalized), batch_size):
-                X_batch = X_test_normalized[i:i + batch_size]
-                
-                # Add batch dimension if necessary
-                if len(X_batch.shape) == 2:
-                    X_batch = np.expand_dims(X_batch, axis=0)
-                
-                # Run inference
-                predictions = run_inference_tflite(X_batch)
-                
-                # Store predictions
-                y_pred.append(predictions)
-            
-            # Concatenate predictions
-            y_pred = np.concatenate(y_pred, axis=0)
-            
-            # Dequantize outputs
-            y_pred_float32 = (y_pred.astype(np.float32) - output_zero_point) * output_scale
-            
-            # Convert probabilities to binary
-            y_pred_binary = (y_pred_float32 > 0.5).astype(int)
-            
-            # Compute Precision, Recall, and F1-Score
-            precision = precision_score(y_test, y_pred_binary, average='micro', zero_division=0)
-            recall = recall_score(y_test, y_pred_binary, average='micro', zero_division=0)
-            f1_value = f1_score(y_test, y_pred_binary, average='micro', zero_division=0)
-            
-            print(f"Fold {fold_number} - Test Precision: {precision:.4f}, Recall: {recall:.4f}, F1-Score: {f1_value:.4f}")
-            
-            # Append test metrics to the aggregated lists
+        # Concatenate all predictions
+        y_pred = np.concatenate(y_pred, axis=0)
+        
+        # Convert probabilities to binary predictions
+        y_pred_binary = (y_pred > 0.5).astype(int)
+        
+        # Compute Precision, Recall, and F1-Score using scikit-learn
+        precision = precision_score(y_test, y_pred_binary, average='micro', zero_division=0)
+        recall = recall_score(y_test, y_pred_binary, average='micro', zero_division=0)
+        f1 = f1_score(y_test, y_pred_binary, average='micro', zero_division=0)
+        
+        print(f"Fold {fold_number} - Test Precision: {precision:.4f}, Recall: {recall:.4f}, F1-Score: {f1:.4f}")
+        
+        # Append test metrics to the aggregated lists
         test_precisions.append(precision)
         test_recalls.append(recall)
-        test_f1_scores.append(f1_value)
+        test_f1_scores.append(f1)
         
         # ----------------- Compute Per-Channel Metrics ------------------
         fold_channel_metrics = []  # This fold's metrics for each channel
@@ -471,15 +461,17 @@ for train_index, val_index in rkf.split(X_normalized):
         channel_metrics_folds.append(np.array(fold_channel_metrics))
     else:
         print(f"Fold {fold_number} - Skipping test evaluation due to TFLite conversion failure.")
-        
+    
     # ================== Best Overall Model ======================
-    # Extract the best validation F1-score from the training history
+    # Evaluate validation F1-score from training history
     if 'history' in locals():
         if 'val_F1_Score' in history.history:
             val_f1 = max(history.history['val_F1_Score'])
             # Append validation metrics
-            validation_precisions.append(max(history.history['val_Precision']))
-            validation_recalls.append(max(history.history['val_Recall']))
+            val_precision = max(history.history['Precision'])
+            val_recall = max(history.history['Recall'])
+            validation_precisions.append(val_precision)
+            validation_recalls.append(val_recall)
             validation_f1_scores.append(val_f1)
         else:
             print(f"Fold {fold_number} - 'val_F1_Score' not found in history.")
@@ -489,23 +481,21 @@ for train_index, val_index in rkf.split(X_normalized):
         val_f1 = -1  # Assign a default value or handle appropriately
     
     # Check if this fold has the best validation F1-score
-    if val_f1 > best_overall_f1 and quantized_tflite_model:
+    if val_f1 > best_overall_f1 and current_fold_tflite_path:
         best_overall_f1 = val_f1
-        best_overall_test_f1 = f1_value  # Update test F1-score for the best model
+        best_overall_test_f1 = f1  # Update test F1-score for the best model
         best_overall_history = history  # Store the training history of the best model
         
         # Copy the current fold's TFLite model to the best_overall_model_path
         shutil.copy(current_fold_tflite_path, best_overall_model_path)
         print(f"New best overall model found in Fold {fold_number} with Validation F1-Score: {val_f1:.4f}")
-    elif val_f1 > best_overall_f1 and not quantized_tflite_model:
+    elif val_f1 > best_overall_f1 and not current_fold_tflite_path:
         print(f"Fold {fold_number} has a better validation F1-Score ({val_f1:.4f}) but TFLite conversion failed. Not updating the best model.")
     # =============================================================
     
     fold_number += 1
 # =============================================================
 
-
-# In[ ]:
 
 
 # ================== Aggregating Metrics ======================
@@ -623,6 +613,7 @@ print(f"\nFinal aggregated metrics have been saved to '{metrics_file_path}'.")
 print(f"Best overall TFLite model saved at: '{best_overall_model_path}'")
 # =============================================================
 
+
 # ================== Generate and Save Plots for Best Overall Model ============
 if best_overall_history is not None:
     print("\nGenerating plots for the best overall model...")
@@ -683,72 +674,63 @@ if best_overall_history is not None:
     
     print(f"Standard training plots for the best overall model have been saved to '{plots_dir}'.")
     
-     # ================== Generate Heatmap for Per-Channel Metrics ====================
+    # ================== Generate Heatmap for Per-Channel Metrics ====================
     print("\nGenerating per-channel heatmap for the best overall model...")
-
-    # Load the best overall TFLite int8 (quantized) model
+    
+    # Load the best overall TFLite model
     interpreter = tf.lite.Interpreter(model_path=best_overall_model_path)
     interpreter.allocate_tensors()
-
-    # Get input and output details
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
-
-    # Function to quantize inputs from FLOAT32 to INT8
-    def quantize_input(X, scale, zero_point):
-        return np.round(X / scale + zero_point).astype(np.int8)
-
-    # Retrieve quantization parameters for inputs and outputs
-    input_scale, input_zero_point = input_details[0]['quantization']
-    output_scale, output_zero_point = output_details[0]['quantization']
-
-    # Define inference function using quantized inputs
-    def run_inference_tflite_quant(X):
-        # Quantize input
-        X_int8 = quantize_input(X, input_scale, input_zero_point)
-        interpreter.set_tensor(input_details[0]['index'], X_int8)
+    
+    # Run inference on the entire test set using the best overall model
+    y_pred_best = []
+    for i in range(0, len(X_test_normalized), 1):
+        X_batch = X_test_normalized[i:i + 1]
+        interpreter.set_tensor(input_details[0]['index'], X_batch.astype(np.float32))
         interpreter.invoke()
-        # Get int8 output and return it
-        return interpreter.get_tensor(output_details[0]['index'])
-
-    # Run inference on the entire test set using the int8 quantized model
-    y_pred = []
-    for i in range(0, len(X_test_normalized)):
-        X_batch = X_test_normalized[i:i+1]  # Ensure a batch dimension
-        pred = run_inference_tflite_quant(X_batch)
-        y_pred.append(pred)
-    y_pred = np.concatenate(y_pred, axis=0)
-
-    # Dequantize outputs to FLOAT32
-    y_pred_float32 = (y_pred.astype(np.float32) - output_zero_point) * output_scale
-
-    # Convert probabilities to binary predictions
-    y_pred_binary = (y_pred_float32 > 0.5).astype(int)
-
-    # Compute per-channel metrics for the best overall model (using quantized inference)
+        y_pred_best.append(interpreter.get_tensor(output_details[0]['index']))
+    y_pred_best = np.concatenate(y_pred_best, axis=0)
+    y_pred_best_binary = (y_pred_best > 0.5).astype(int)
+    
+    # Compute per-channel metrics for the best overall model
     best_model_channel_metrics = []
     for channel in range(num_channels):
-        precision_ch = precision_score(y_test[:, channel], y_pred_binary[:, channel], average='binary', zero_division=0)
-        recall_ch = recall_score(y_test[:, channel], y_pred_binary[:, channel], average='binary', zero_division=0)
-        f1_ch = f1_score(y_test[:, channel], y_pred_binary[:, channel], average='binary', zero_division=0)
+        precision_ch = precision_score(
+            y_test[:, channel], y_pred_best_binary[:, channel],
+            average='binary', zero_division=0)
+        recall_ch = recall_score(
+            y_test[:, channel], y_pred_best_binary[:, channel],
+            average='binary', zero_division=0)
+        f1_ch = f1_score(
+            y_test[:, channel], y_pred_best_binary[:, channel],
+            average='binary', zero_division=0)
         best_model_channel_metrics.append([precision_ch, recall_ch, f1_ch])
     best_model_channel_metrics = np.array(best_model_channel_metrics)
+    
+    # Create a heatmap (reversed order so Channel-4 appears on top, for example)
+    fig, ax = plt.subplots(figsize=(7, 8))
+    cmap = sns.color_palette("Blues", as_cmap=True)  # "crest" provides a smooth blue-green gradient
 
-    # Create a heatmap (reversed order so that, for example, Channel-4 appears on top)
-    fig, ax = plt.subplots(figsize=(8, 4))
-    sns.heatmap(best_model_channel_metrics[::-1], annot=True, fmt=".4f", cmap="Blues",
+    sns.heatmap(best_model_channel_metrics[::-1], annot=True, fmt=".4f", cmap=cmap,
                 xticklabels=['Precision', 'Recall', 'F1-score'],
                 yticklabels=[f'Channel-{i+1} ({int(y_test.sum(axis=0)[i])})' for i in range(num_channels-1, -1, -1)],
                 cbar=True)
-    plt.title("SDR Dataset Performance Metrics (Best Overall Model - Quantized)")
+    plt.title("SDR Dataset Performance Metrics (Best Overall Model)")
     plt.ylabel("Channels (# of Occurrences)")
     plt.xlabel("Metrics")
+    
+    # Adjust layout so that nothing is cut off
     plt.tight_layout()
-    heatmap_path = os.path.join(plots_dir, "Best_Model_Per_Channel_Heatmap_INT8.png")
+    heatmap_path = os.path.join(plots_dir, "Best_Model_Per_Channel_Heatmap.png")
     plt.savefig(heatmap_path, bbox_inches='tight')
     plt.close()
     print(f"Heatmap saved to '{heatmap_path}'.")
 else:
     print("\nNo best overall model was identified. Plot generation skipped.")
 # =============================================================
+
+
+
+
 
