@@ -5,6 +5,8 @@ This repository contains code and resources for the paper: "[Cognitive Radio Spe
 
 ## Introduction
 
+# Datasets
+
 We evaluate our models using the publicly available SDR and LTE datasets obtained from: https://github.com/wineslab/deepsense-spectrum-sensing-datasets
 
 For SDR, in [bin2hdf5.py](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sdr_wifi_code/bin2hdf5.py)", we set `nsamples_per_file = 50000` (to match reported # of occurnces per channel) and `buf = 32` and `128` (control window size, referred to as $N$ within our paper). we keep test_size = `0.1` (to get `90%` training + validation), and `10%` testing. we keep `stride = 12` (overlap between I/Q samples).
