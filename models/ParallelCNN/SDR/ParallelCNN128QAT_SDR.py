@@ -3,8 +3,8 @@ import numpy as np
 import h5py
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Dense, Conv1D, Conv2D, MaxPooling1D, LeakyReLU, Flatten, Input, Dropout, Lambda, Reshape, MaxPooling2D, ReLU
-from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Dense, Conv1D, Conv2D, MaxPooling1D, LeakyReLU, ReLU, Flatten, Input, Dropout, Lambda, Reshape, MaxPooling2D, Add, Layer
+from tensorflow.keras.models import Model, clone_model, load_model
 import argparse
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint, TensorBoard
 import matplotlib.pyplot as plt
@@ -22,10 +22,12 @@ import random
 from datetime import datetime
 import json
 import shutil  # For copying files
+from scipy.stats import skew
 
 
 from sklearn.model_selection import RepeatedKFold
 from tensorflow.keras.models import load_model
+
 
 
 # Suppress TensorFlow INFO, WARNING, and ERROR messages
@@ -39,10 +41,10 @@ print(DEVICE)
 
 # ================== Configuration Variables ==================
 # Experiment Configuration
-model_type = "DeepSense"      # Options: "DeepSense", "ParallelCNN"
+model_type = "ParallelCNN"      # Options: "DeepSense", "ParallelCNN"
 N = 128                       # Options: 128, 32
-training_type = "QAT"         # Fixed to "QAT" for this script
-dataset = "LTE_SNR_10"               # Options: "SDR", "LTE"
+training_type = "QAT"      # Options: "normal", "QAT"
+dataset = "SDR"                # Options: "SDR", "LTE"
 
 # Reproducibility Settings
 SEED = 42
@@ -51,18 +53,17 @@ random.seed(SEED)
 tf.random.set_seed(SEED)
 
 # Experiment Settings
-N_FOLDS = 2
+N_FOLDS = 5
 N_REPEATS = 1
-EPOCHS = 1
+EPOCHS = 150
 BATCHSIZE = 256
 # =============================================================
-
 
 
 # ================== Naming Conventions ======================
 # Define naming patterns based on configuration
 metrics_filename = f"{model_type}_{N}_{training_type}_{dataset}_metrics.json"
-best_overall_model_filename = f"{model_type}_{N}_{training_type}_{dataset}_best_overall_model.tflite"  # Updated to .tflite
+best_overall_model_filename = f"{model_type}_{N}_{training_type}_{dataset}_best_overall_model_INT8.tflite"  # Updated to .tflite
 tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fold_{{fold_number}}_model.tflite"  # Dynamic naming per fold
 # =============================================================
 
@@ -72,13 +73,13 @@ tflite_model_filename_pattern = f"{model_type}_{N}_{training_type}_{dataset}_fol
 # Define base results directory
 base_results_dir = "results"
 
-# Construct the directory path
+# **Updated Directory Path to Include Dataset**
 experiment_dir = os.path.join(
     base_results_dir,
     model_type,
     f"N{N}",
     training_type,
-    dataset 
+    dataset  # Added dataset to the path
 )
 
 # Subdirectories for models, logs, metrics, and plots
@@ -110,6 +111,7 @@ print("Contents of 'plots_dir':", os.listdir(plots_dir))
 
 
 # ================== Custom F1 Metric ==========================
+@tf.keras.utils.register_keras_serializable()
 def F1_Score(y_true, y_pred):
     # Cast inputs to float32
     y_true = tf.cast(y_true, tf.float32)
@@ -130,62 +132,236 @@ def F1_Score(y_true, y_pred):
     return f1  # No need to take mean across classes (micro-averaged already)
 # =============================================================
 
+# ================== Custom Slice Layer ==========================
+@tf.keras.utils.register_keras_serializable()
+class SliceLayer(tf.keras.layers.Layer):
+    def __init__(self, start, end, axis=-1, **kwargs):
+        super(SliceLayer, self).__init__(**kwargs)
+        self.start = start
+        self.end = end
+        self.axis = axis
 
+    def call(self, inputs):
+        slice_indices = [slice(None)] * len(inputs.shape)
+        slice_indices[self.axis] = slice(self.start, self.end)
+        return inputs[tuple(slice_indices)]
 
+    def get_config(self):
+        config = super(SliceLayer, self).get_config()
+        config.update({
+            'start': self.start,
+            'end': self.end,
+            'axis': self.axis
+        })
+        return config
 
-# ================== Data Loading =============================
-# Load training data from the .h5 file
-dset = h5py.File("./lte_10_128_train.h5", 'r')
-X = dset['X'][()]  # Shape: (287971, 32, 2)
-X = np.transpose(X, (2, 1, 0))  # New shape: (471860, 128, 2)
-
-y = dset['y'][()]  # Shape: (287971,)
-y = y.T
-
-print(f"Training data shape: {X.shape}")
-print(f"Sample Transposed Data (index 0):\n{X[0, :5, :]}")
-print(f"Sample Transposed Data (index 1000):\n{X[1000, :5, :]}")
-print(f"Sample Transposed Data (index 100000):\n{X[100000, :5, :]}")
-
-print(f"Labels shape: {y.shape}")
-# Normalize the training data
-# Calculate mean and standard deviation across the dataset for each channel
-mean = np.mean(X, axis=(0, 1))  # Mean for each channel
-std = np.std(X, axis=(0, 1))    # Standard deviation for each channel
-
-# Perform normalization: (X - mean) / std
-X_normalized = (X - mean) / std
-
-# Print normalized data for verification
-print(f"Training data shape: {X_normalized.shape}")
-print(f"Sample normalized training data:\n{X_normalized[0, :10, :]}")
 # =============================================================
 
 
+# ================== Data Loading and Normalization =============================
+dset = h5py.File("./sdr_wifi_train_128_50k.hdf5", 'r')
+X = dset['X'][()]  # Shape: (287971, 32, 2)
+y = dset['y'][()]  # Shape: (287971,)
+dset.close()
 
+print(f"Original Training data shape: {X.shape}")
+print(f"Original Labels shape: {y.shape}")
+print(f"Sample training data (first 5 time steps, channels 0 and 1):\n{X[0, :5, :2]}")
+print(f"Sample labels (first sample):\n{y[0]}")
+
+# Calculate mean and standard deviation across samples and time steps for each channel using float64
+mean = np.mean(X, axis=(0, 1), dtype=np.float64)  # shape: (2,)
+std = np.std(X, axis=(0, 1), dtype=np.float64)    # shape: (2,)
+
+print("\nComputed channel means (float64):", mean)
+print("Computed channel standard deviations (float64):", std)
+
+# Normalize the training data: (X - mean) / std
+# Broadcasting the (2,) arrays across the sample and time dimensions
+X_normalized = (X - mean) / std
+X_normalized = X_normalized.astype(np.float64)
+
+
+print("\nNormalized training data shape:", X_normalized.shape)
+print("Sample normalized training data (first 5 time steps, both channels):")
+print(X_normalized[0, :5, :])
+
+# Compute and print statistics of the normalized training data to verify normalization
+norm_mean = np.mean(X_normalized, axis=(0, 1), dtype=np.float64)
+norm_std = np.std(X_normalized, axis=(0, 1), dtype=np.float64)
+norm_mean_rounded = np.round(norm_mean, decimals=12)
+print("\nNormalized channel means (rounded to 12 decimals):", np.abs(norm_mean_rounded))
+print("Normalized channel standard deviations (float64):", norm_std)
+
+# ----------------- Overall Data Range Calculation -----------------
+# Cast channels to float64
+I_channel = X_normalized[:, :, 0].astype(np.float64)
+Q_channel = X_normalized[:, :, 1].astype(np.float64)
+
+# I channel statistics
+I_min    = np.min(I_channel)
+I_max    = np.max(I_channel)
+I_mean   = np.mean(I_channel, dtype=np.float64)
+I_median = np.median(I_channel)
+I_std    = np.std(I_channel, dtype=np.float64)
+
+# Percentile boundaries for I channel:
+I_p0_1   = np.percentile(I_channel, 0.1)
+I_p99_9  = np.percentile(I_channel, 99.9)
+I_p0_01  = np.percentile(I_channel, 0.01)
+I_p99_99  = np.percentile(I_channel, 99.99)
+I_skew_val = skew(I_channel.flatten())
+
+# ±5σ boundaries for I channel
+I_lower_5sd = I_mean - 5.0 * I_std
+I_upper_5sd = I_mean + 5.0 * I_std
+
+# Q channel statistics
+Q_min = np.min(Q_channel)
+Q_max = np.max(Q_channel)
+Q_mean = np.mean(Q_channel, dtype=np.float64)
+Q_median = np.median(Q_channel)
+Q_std = np.std(Q_channel, dtype=np.float64)
+
+# Percentile boundaries for Q channel:
+Q_p0_1   = np.percentile(Q_channel, 0.1)
+Q_p99_9  = np.percentile(Q_channel, 99.9)
+Q_p0_01  = np.percentile(Q_channel, 0.01)
+Q_p99_99  = np.percentile(Q_channel, 99.99)
+Q_skew_val = skew(Q_channel.flatten())
+
+# ±5σ boundaries for Q channel
+Q_lower_5sd = Q_mean - 5.0 * Q_std
+Q_upper_5sd = Q_mean + 5.0 * Q_std
+
+
+print("\nI channel statistics:")
+print(f"  Min: {I_min:.5f}, Max: {I_max:.5f}")
+print(f"  Mean (float64): {I_mean:.5f}, Median: {I_median:.5f}")
+print(f"  Std (float64): {I_std:.5f}")
+print(f"  0.1th percentile: {I_p0_1:.5f}")
+print(f"  99.9th percentile: {I_p99_9:.5f}")
+print(f"  0.01th percentile: {I_p0_01:.5f}")
+print(f"  99.99th percentile: {I_p99_99:.5f}")
+print(f"  Skewness: {I_skew_val:.5f}")
+print(f"  5σ range: ({I_lower_5sd:.5f}, {I_upper_5sd:.5f})")
+
+print("\nQ channel statistics:")
+print(f"  Min: {Q_min:.5f}, Max: {Q_max:.5f}")
+print(f"  Mean (float64): {Q_mean:.5f}, Median: {Q_median:.5f}")
+print(f"  Std (float64): {Q_std:.5f}")
+print(f"  0.1th percentile: {Q_p0_1:.5f}")
+print(f"  99.9th percentile: {Q_p99_9:.5f}")
+print(f"  0.01th percentile: {Q_p0_01:.5f}")
+print(f"  99.99th percentile: {Q_p99_99:.5f}")
+print(f"  Skewness: {Q_skew_val:.5f}")
+print(f"  5σ range: ({Q_lower_5sd:.5f}, {Q_upper_5sd:.5f})")
+
+
+# --- Overall data range using full data (min and max) ---
+overall_min = np.min(X_normalized)
+overall_max = np.max(X_normalized)
+print(f"\nOverall data range (min/max): {overall_min:.5f} to {overall_max:.5f}")
+
+# --- Overall robust boundaries based on channel-specific percentiles ---
+# For the 0.1/99.9 pair:
+overall_new_min_0p1 = min(I_p0_1, Q_p0_1)
+overall_new_max_99p9 = max(I_p99_9, Q_p99_9)
+print(f"Overall new data range (percentile-based from channels, 0.1/99.9): {overall_new_min_0p1:.5f} to {overall_new_max_99p9:.5f}")
+
+# For the 0.01/99.99 pair:
+overall_new_min_0p01 = min(I_p0_01, Q_p0_01)
+overall_new_max_99p99 = max(I_p99_99, Q_p99_99)
+print(f"Overall new data range (percentile-based from channels, 0.01/99.99): {overall_new_min_0p01:.5f} to {overall_new_max_99p99:.5f}")
+
+# =============================================================
 
 # ================== Load Testing Data ========================
-# Load testing data from the .h5 file
-test_dset = h5py.File("./lte_10_128_test.h5", 'r')
+test_dset = h5py.File("./sdr_wifi_test_128_50k.hdf5", 'r')
 X_test = test_dset['X'][()]
-X_test = np.transpose(X_test, (2, 1, 0))  # Same for test data
 y_test = test_dset['y'][()]
-y_test = y_test.T
+test_dset.close()
 
-print(f"Testing data shape: {X_test.shape}")
-print(f"Sample Transposed Test Data (index 0):\n{X_test[0, :5, :]}")
-print(f"Sample Transposed Test Data (index 1000):\n{X_test[1000, :5, :]}")
-print(f"Sample Transposed Test Data (index 10000):\n{X_test[10000, :5, :]}")
-
+print(f"\nTesting data shape: {X_test.shape}")
+print(f"Sample testing data (first 10 samples):\n{X_test[0, :5, :]}")
 print(f"Test Labels shape: {y_test.shape}")
+print(f"Sample test labels (first sample):\n{y_test[0]}")
 
-# Normalize the test data using training mean and std
+# Ensure test data is in float64
+X_test = X_test.astype(np.float64)
+
+# Normalize the test data using the training mean and std
 X_test_normalized = (X_test - mean) / std
 
-print(f"Normalized testing data shape: {X_test_normalized.shape}")
-print(f"Sample normalized testing data (first 5 samples):\n{X_normalized[0, :10, :]}")
+print("\nNormalized test sample (first 3 time steps, channels 0 and 1):")
+print(X_test_normalized[0, :3, :2])
+
+# Compute the per-channel mean and std for the normalized test data to confirm normalization
+test_mean = np.mean(X_test_normalized, axis=(0, 1), dtype=np.float64)
+test_std  = np.std(X_test_normalized, axis=(0, 1), dtype=np.float64)
+
+print("\nTest data normalized channel means (should be near 0):", test_mean)
+print("Test data normalized channel standard deviations (should be near 1):", test_std)
 # =============================================================
 
+# ================== Updated Representative Dataset ======================
+def representative_data_gen():
+    dataset = tf.data.Dataset.from_tensor_slices(X_normalized.astype(np.float32))
+    dataset = dataset.shuffle(buffer_size=len(X_normalized), seed=42)
+    dataset = dataset.batch(1).take(5000)
+    for batch in dataset:
+        clipped = tf.clip_by_value(batch, overall_new_min_0p1, overall_new_max_99p9)
+        yield [clipped]
+# =============================================================
+
+# ================== Custom Input Quantization Layer ======================
+@tf.keras.utils.register_keras_serializable()
+class InputQuantizationLayer(tf.keras.layers.Layer):
+    def __init__(self, min_val, max_val, num_bits=8, **kwargs):
+        super(InputQuantizationLayer, self).__init__(**kwargs)
+        self.min_val = min_val
+        self.max_val = max_val
+        self.num_bits = num_bits
+
+    def call(self, inputs):
+        return tf.quantization.fake_quant_with_min_max_args(
+            inputs,
+            min=self.min_val,
+            max=self.max_val,
+            num_bits=self.num_bits,
+            narrow_range=False  # adjust as needed
+        )
+
+    def get_config(self):
+        config = super(InputQuantizationLayer, self).get_config()
+        config.update({
+            'min_val': self.min_val,
+            'max_val': self.max_val,
+            'num_bits': self.num_bits
+        })
+        return config
+# =============================================================
+
+# ================== Branch-Building Function (Functional API) -----
+def build_branch(input_tensor, branch_prefix, initializer):
+    conv1 = Conv2D(filters=8, kernel_size=(1, 3), strides=(1, 1), padding='valid',
+                   kernel_initializer=initializer, name=branch_prefix+'_conv1')
+    x = conv1(input_tensor)
+    relu1 = ReLU(max_value=6.0, name=branch_prefix+'_relu1')
+    x = relu1(x)
+    pool1 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2), name=branch_prefix+'_pool1')
+    x = pool1(x)
+    
+    conv2 = Conv2D(filters=16, kernel_size=(1, 5), strides=(1, 2), padding='valid',
+                   kernel_initializer=initializer, name=branch_prefix+'_conv2')
+    x = conv2(x)
+    relu2 = ReLU(max_value=6.0, name=branch_prefix+'_relu2')
+    x = relu2(x)
+    pool2 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2), name=branch_prefix+'_pool2')
+    x = pool2(x)
+    
+    return x, [conv1, conv2]
+# =============================================================
 
 
 # ================== Cross-Validation Setup ===================
@@ -228,73 +404,84 @@ fold_number = 1
 # Get number of channels from test labels (assumes multi-label classification)
 num_channels = y_test.shape[1]
 
-# ================== Representative Dataset =====================
-def representative_data_gen():
-    for input_value in tf.data.Dataset.from_tensor_slices(X_normalized.astype(np.float32)).batch(1).take(100):
-        yield [input_value]  # Ensure it remains a list as expected by TFLite
-# =============================================================
-
 # ================== Training Loop =============================
 for train_index, val_index in rkf.split(X_normalized):
-    print(f"\nStarting Fold {fold_number}/{total_folds}")
+    print(f"\nStarting Fold {fold_number}/{n_splits * n_repeats}")
     
-    # Split the data into training and validation sets for this fold
     X_train_fold, X_val_fold = X_normalized[train_index], X_normalized[val_index]
     y_train_fold, y_val_fold = y[train_index], y[val_index]
     
     print(f"Train shape: {X_train_fold.shape}, Validation shape: {X_val_fold.shape}")
+    print(f"Train Labels shape: {y_train_fold.shape}, Validation Labels shape: {y_val_fold.shape}")
     
     # ================== Model Building ========================
-    # Define model parameters
-    n_classes = y.shape[1]       # number of classes for SDR case
-    dim = X_normalized.shape[1]  # Number of I/Q samples being taken as input
-    n_channels = X_normalized.shape[2]  # Number of channels (I and Q)
+    M = y.shape[1]
+    N = X_normalized.shape[1]
+    n_channels = X_normalized.shape[2]
     
-    # Build the model
-    inputs = Input(shape=(dim, n_channels), dtype=tf.float32, name='input_layer')
+    # Build the model using the updated branch builder
+    inputs = Input(shape=(N, n_channels), name='input_layer')
     
-    # Reshape input to fit Conv2D requirements: (1, dim, n_channels)
-    reshaped_inputs = Reshape((1, dim, n_channels))(inputs)
+    # Slice input into two halves along axis=1 (using integer casting)
+    I1 = SliceLayer(start=0, end=int(N/2), axis=1, name='I1')(inputs)
+    I2 = SliceLayer(start=int(N/2), end=N, axis=1, name='I2')(inputs)
     
-    # First Conv stack
-    x = Conv2D(16, (1, 3), name='conv1')(reshaped_inputs)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = Conv2D(16, (1, 3), name='conv2')(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = MaxPooling2D(pool_size=(1, 2), strides=(1, 2), name='pool1')(x)
-    x = Dropout(0.3)(x)  # Dropout added after the first stack
+    # Apply InputQuantizationLayer with computed clipped range
+    quantized_I1 = InputQuantizationLayer(min_val=overall_new_min_0p1, 
+                                          max_val=overall_new_max_99p9, 
+                                          name="IQ1_quant")(I1)
+    quantized_I2 = InputQuantizationLayer(min_val=overall_new_min_0p1, 
+                                          max_val=overall_new_max_99p9, 
+                                          name="IQ2_quant")(I2)
     
-    # Second Conv stack
-    x = Conv2D(32, (1, 5), name='conv3')(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = Conv2D(32, (1, 5), name='conv4')(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = MaxPooling2D(pool_size=(1, 2), strides=(1, 2), name='pool2')(x)
-    x = Dropout(0.3)(x)  # Dropout added after the second stack
+    # Reshape each branch to a shape suitable for Conv2D: (1, int(N/2), n_channels)
+    reshape_I1 = Reshape((1, int(N/2), n_channels), name='reshape_I1')(quantized_I1)
+    reshape_I2 = Reshape((1, int(N/2), n_channels), name='reshape_I2')(quantized_I2)
     
-    # Fully connected layer
-    x = Flatten()(x)
-    x = Dense(64, name='dense1')(x)
-    x = LeakyReLU(alpha=0.1)(x)
+    initializer = tf.keras.initializers.HeUniform(seed=42)
     
-    # Output layer
-    outputs = Dense(n_classes, activation='sigmoid', name='out')(x)
+    branch1_output, branch1_conv_layers = build_branch(reshape_I1, "branch1", initializer)
+    branch2_output, branch2_conv_layers = build_branch(reshape_I2, "branch2", initializer)
     
-    # Create base model
-    model = Model(inputs=inputs, outputs=outputs)
+    for l1, l2 in zip(branch1_conv_layers, branch2_conv_layers):
+        l2.set_weights(l1.get_weights())
+    
+    added = Add(name='add_branches')([branch1_output, branch2_output])
+    flattened = Flatten(name='flatten')(added)
+    F1 = Dense(64, name='F1')(flattened)
+    F1 = ReLU(max_value=6.0, name='F1_relu')(F1)
+    F2 = Dense(M, activation='sigmoid', name='F2')(F1)
+
+    # Creating Model
+    model = Model(inputs=inputs, outputs=F2, name="ParallelCNN_2D")
     # =============================================================
+
+    # ================== Quantization Annotation for QAT ======================
+    def annotate_layers(layer):
+        if isinstance(layer, Add):
+            return layer
+        if isinstance(layer, (Dense, Conv2D, ReLU, Reshape, MaxPooling2D, Flatten)):
+            return tfmot.quantization.keras.quantize_annotate_layer(layer)
+        return layer
     
-    # ================== Quantization Aware Training ============
-    # Apply QAT to the model
-    qat_model = tfmot.quantization.keras.quantize_model(model)
-    print("Converted model to QAT.")
+    annotated_model = clone_model(model, clone_function=annotate_layers)
+    annotated_model.set_weights(model.get_weights())
+
+    qat_model = tfmot.quantization.keras.quantize_apply(annotated_model)
     # =============================================================
+
+    # Annotate quantizable layers using our custom function
+    annotated_model = clone_model(model, clone_function=annotate_layers)
     
+    # Apply QAT conversion to the annotated model
+    qat_model = tfmot.quantization.keras.quantize_apply(annotated_model)
+    # qat_model.summary()
+
     # ================== Model Compilation =====================
-    # Compile the QAT model
-    adam = tf.keras.optimizers.Adam(learning_rate=0.001)
-    
-    qat_model.compile(
+    # Compile the model
+    adam = tf.keras.optimizers.Adam(learning_rate=1e-3)
+
+    model.compile(
         loss='binary_crossentropy', 
         optimizer=adam, 
         metrics=[
@@ -313,7 +500,7 @@ for train_index, val_index in rkf.split(X_normalized):
     )
     tensorboard_callback = TensorBoard(log_dir=fold_log_dir, histogram_freq=1)
     
-    # Define ModelCheckpoint to save the best QAT model based on validation F1-score
+    # Define ModelCheckpoint to save the best model based on validation F1-score
     checkpoint_filename = f"{model_type}_{N}_{training_type}_{dataset}_fold_{fold_number}_best_model.h5"
     checkpoint_path = os.path.join(models_dir, checkpoint_filename)
     model_checkpoint = ModelCheckpoint(
@@ -325,13 +512,13 @@ for train_index, val_index in rkf.split(X_normalized):
     )
     
     # Other callbacks
-    lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
+    # lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
     # =============================================================
     
     # ================== Model Training =========================
-    # Train the QAT model
-    history = qat_model.fit(
+    # Train the model
+    history = model.fit(
         x=X_train_fold, 
         y=y_train_fold, 
         validation_data=(X_val_fold, y_val_fold),
@@ -339,7 +526,7 @@ for train_index, val_index in rkf.split(X_normalized):
         epochs=EPOCHS, 
         verbose=1, 
         shuffle=True,  
-        callbacks=[lr_scheduler, early_stopping, model_checkpoint, tensorboard_callback]
+        callbacks=[early_stopping, model_checkpoint, tensorboard_callback]
     )
     # =============================================================
     
@@ -409,7 +596,7 @@ for train_index, val_index in rkf.split(X_normalized):
             
             # Define inference function
             def run_inference_tflite(X):
-                X = X.astype(np.float32)  # Ensure float32 type
+                # Quantize input
                 X_int8 = quantize_input(X, input_scale, input_zero_point)
                 interpreter.set_tensor(input_details[0]['index'], X_int8)
                 interpreter.invoke()
@@ -503,9 +690,6 @@ for train_index, val_index in rkf.split(X_normalized):
     
     fold_number += 1
 # =============================================================
-
-
-# In[ ]:
 
 
 # ================== Aggregating Metrics ======================
@@ -623,6 +807,7 @@ print(f"\nFinal aggregated metrics have been saved to '{metrics_file_path}'.")
 print(f"Best overall TFLite model saved at: '{best_overall_model_path}'")
 # =============================================================
 
+
 # ================== Generate and Save Plots for Best Overall Model ============
 if best_overall_history is not None:
     print("\nGenerating plots for the best overall model...")
@@ -683,7 +868,7 @@ if best_overall_history is not None:
     
     print(f"Standard training plots for the best overall model have been saved to '{plots_dir}'.")
     
-     # ================== Generate Heatmap for Per-Channel Metrics ====================
+    # ================== Generate Heatmap for Per-Channel Metrics ====================
     print("\nGenerating per-channel heatmap for the best overall model...")
 
     # Load the best overall TFLite int8 (quantized) model
@@ -733,22 +918,28 @@ if best_overall_history is not None:
         f1_ch = f1_score(y_test[:, channel], y_pred_binary[:, channel], average='binary', zero_division=0)
         best_model_channel_metrics.append([precision_ch, recall_ch, f1_ch])
     best_model_channel_metrics = np.array(best_model_channel_metrics)
-
-    # Create a heatmap (reversed order so that, for example, Channel-4 appears on top)
+    
+    # Create a heatmap (reversed order so Channel-4 appears on top, for example)
     fig, ax = plt.subplots(figsize=(8, 4))
     sns.heatmap(best_model_channel_metrics[::-1], annot=True, fmt=".4f", cmap="Blues",
                 xticklabels=['Precision', 'Recall', 'F1-score'],
                 yticklabels=[f'Channel-{i+1} ({int(y_test.sum(axis=0)[i])})' for i in range(num_channels-1, -1, -1)],
                 cbar=True)
-    plt.title("SDR Dataset Performance Metrics (Best Overall Model - Quantized)")
+    plt.title("SDR Dataset Performance Metrics (Best Overall Model)")
     plt.ylabel("Channels (# of Occurrences)")
     plt.xlabel("Metrics")
+    
+    # Adjust layout so that nothing is cut off
     plt.tight_layout()
-    heatmap_path = os.path.join(plots_dir, "Best_Model_Per_Channel_Heatmap_INT8.png")
+    heatmap_path = os.path.join(plots_dir, "Best_Model_Per_Channel_Heatmap.png")
     plt.savefig(heatmap_path, bbox_inches='tight')
     plt.close()
     print(f"Heatmap saved to '{heatmap_path}'.")
 else:
     print("\nNo best overall model was identified. Plot generation skipped.")
 # =============================================================
+
+
+
+
 

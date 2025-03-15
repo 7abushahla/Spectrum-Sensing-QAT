@@ -3,7 +3,7 @@ import numpy as np
 import h5py
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Dense, Conv1D, Conv2D, MaxPooling1D, LeakyReLU, ReLU, Flatten, Input, Dropout, Lambda, Reshape, MaxPooling2D, Add, Layer
+from tensorflow.keras.layers import Dense, Conv1D, Conv2D, MaxPooling1D, LeakyReLU, Flatten, Input, Dropout, Lambda, Reshape, MaxPooling2D, ReLU
 from tensorflow.keras.models import Model
 import argparse
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint, TensorBoard
@@ -40,7 +40,7 @@ print(DEVICE)
 
 # ================== Configuration Variables ==================
 # Experiment Configuration
-model_type = "ParallelCNN"      # Options: "DeepSense", "ParallelCNN"
+model_type = "DeepSense"      # Options: "DeepSense", "ParallelCNN"
 N = 128                       # Options: 128, 32
 training_type = "normal"      # Options: "normal", "QAT"
 dataset = "SDR"                # Options: "SDR", "LTE"
@@ -53,8 +53,8 @@ tf.random.set_seed(SEED)
 
 # Experiment Settings
 N_FOLDS = 5
-N_REPEATS = 3
-EPOCHS = 150
+N_REPEATS = 1
+EPOCHS = 100
 BATCHSIZE = 256
 # =============================================================
 
@@ -111,7 +111,6 @@ print("Contents of 'plots_dir':", os.listdir(plots_dir))
 
 
 # ================== Custom F1 Metric ==========================
-@tf.keras.utils.register_keras_serializable()
 def F1_Score(y_true, y_pred):
     # Cast inputs to float32
     y_true = tf.cast(y_true, tf.float32)
@@ -132,47 +131,14 @@ def F1_Score(y_true, y_pred):
     return f1  # No need to take mean across classes (micro-averaged already)
 # =============================================================
 
-# ================== Custom Slice Layer ==========================
-@tf.keras.utils.register_keras_serializable()
-class SliceLayer(Layer):
-    def __init__(self, start, end, axis=-1, **kwargs):
-        """
-        Custom layer to slice the input tensor.
 
-        Args:
-            start (int): Starting index for slicing.
-            end (int): Ending index for slicing.
-            axis (int): Axis along which to slice.
-            **kwargs: Additional keyword arguments.
-        """
-        super(SliceLayer, self).__init__(**kwargs)
-        self.start = start
-        self.end = end
-        self.axis = axis
-
-    def call(self, inputs):
-        # Create dynamic slice indices
-        slice_indices = [slice(None)] * len(inputs.shape)
-        slice_indices[self.axis] = slice(self.start, self.end)
-        return inputs[tuple(slice_indices)]
-
-    def get_config(self):
-        config = super(SliceLayer, self).get_config()
-        config.update({
-            'start': self.start,
-            'end': self.end,
-            'axis': self.axis
-        })
-        return config
-
-# =============================================================
 
 
 # ================== Data Loading =============================
 # Load training data from the .h5 file
 dset = h5py.File("./sdr_wifi_train_128_50k.hdf5", 'r')
-X = dset['X'][()]  
-y = dset['y'][()]  
+X = dset['X'][()]  # Shape: (287971, 32, 2)
+y = dset['y'][()]  # Shape: (287971,)
 
 print(f"Training data shape: {X.shape}")
 print(f"Sample training data:\n{X[0, :5, :2]}")  # Display first 5 samples
@@ -265,60 +231,51 @@ for train_index, val_index in rkf.split(X_normalized):
     y_train_fold, y_val_fold = y[train_index], y[val_index]
     
     print(f"Train shape: {X_train_fold.shape}, Validation shape: {X_val_fold.shape}")
-    print(f"Train Labels shape: {y_train_fold.shape}, Validation Labels shape: {y_val_fold.shape}")
     
     # ================== Model Building ========================
     # Define model parameters
-    M = y.shape[1]       # number of classes for multi-label classification
-    N = X_normalized.shape[1]  # Number of I/Q samples
+    n_classes = y.shape[1]       # number of classes for multi-label classification
+    dim = X_normalized.shape[1]  # Number of I/Q samples being taken as input
     n_channels = X_normalized.shape[2]  # Number of channels (I and Q)
     
     # Build the model
-    inputs = Input(shape=(N, n_channels), name='input_layer')
+    inputs = Input(shape=(dim, n_channels), dtype=tf.float32, name='input_layer')
     
     # Reshape input to fit Conv2D requirements: (1, dim, n_channels)
-    reshaped_inputs = Reshape((1, N, n_channels), name='reshape')(inputs)
+    reshaped_inputs = Reshape((1, dim, n_channels))(inputs)
     
-    # Split the input into two halves along the width (dim) dimension
-    I1 = SliceLayer(start=0, end=int(N/2), axis=2, name='I1')(reshaped_inputs)  # First half
-    I2 = SliceLayer(start=int(N/2), end=N, axis=2, name='I2')(reshaped_inputs)  # Second half
-
-    # CNN1 Branch (Processing I1)
-    # Here the kernel_size is (3,1) so that the convolution acts over the N dimension only.
-    C1 = Conv2D(filters=8, kernel_size=(1, 3), strides=(1, 1), padding='valid')(I1)
-    C1 = LeakyReLU(alpha=0.2)(C1)
-    S1 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2))(C1)
-
-    C2 = Conv2D(filters=16, kernel_size=(1, 5), strides=(1, 2), padding='valid')(S1)
-    C2 = LeakyReLU(alpha=0.2)(C2)
-    S2 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2))(C2)
-
-    # CNN2 Branch (Processing I2)
-    C3 = Conv2D(filters=8, kernel_size=(1, 3), strides=(1, 1), padding='valid')(I2)
-    C3 = LeakyReLU(alpha=0.2)(C3)
-    S3 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2))(C3)
-
-    C4 = Conv2D(filters=16, kernel_size=(1, 5), strides=(1, 2), padding='valid')(S3)
-    C4 = LeakyReLU(alpha=0.2)(C4)
-    S4 = MaxPooling2D(pool_size=(1, 2), strides=(1, 2))(C4)
-
-    # Combining Outputs (element-wise summation)
-    A1 = Add()([S2, S4])
-    A1 = Flatten()(A1)
-
-    # Fully Connected Layers
-    F1 = Dense(64)(A1)
-    F1 = LeakyReLU(alpha=0.2)(F1)
-    F2 = Dense(M, activation='sigmoid')(F1)  # Multi-label classification
-
-    # Creating Model
-    model = Model(inputs=inputs, outputs=F2, name="ParallelCNN_2D")
+    # First Conv stack
+    x = Conv2D(16, (1, 3), name='conv1')(reshaped_inputs)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Conv2D(16, (1, 3), name='conv2')(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = MaxPooling2D(pool_size=(1, 2), strides=(1, 2), name='pool1')(x)
+    x = Dropout(0.3)(x)  # Dropout added after the first stack
+    
+    # Second Conv stack
+    x = Conv2D(32, (1, 5), name='conv3')(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Conv2D(32, (1, 5), name='conv4')(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = MaxPooling2D(pool_size=(1, 2), strides=(1, 2), name='pool2')(x)
+    x = Dropout(0.3)(x)  # Dropout added after the second stack
+    
+    # Fully connected layer
+    x = Flatten()(x)
+    x = Dense(64, name='dense1')(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    
+    # Output layer
+    outputs = Dense(n_classes, activation='sigmoid', name='out')(x)
+    
+    # Create model
+    model = Model(inputs=inputs, outputs=outputs)
     # =============================================================
     
     # ================== Model Compilation =====================
     # Compile the model
-    adam = tf.keras.optimizers.Adam(learning_rate=1e-3)
-
+    adam = tf.keras.optimizers.Adam(learning_rate=0.001)
+    
     model.compile(
         loss='binary_crossentropy', 
         optimizer=adam, 
@@ -350,7 +307,7 @@ for train_index, val_index in rkf.split(X_normalized):
     )
     
     # Other callbacks
-    # lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
+    lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
     # =============================================================
     
@@ -364,14 +321,15 @@ for train_index, val_index in rkf.split(X_normalized):
         epochs=EPOCHS, 
         verbose=1, 
         shuffle=True,  
-        callbacks=[early_stopping, model_checkpoint, tensorboard_callback]
+        callbacks=[lr_scheduler, early_stopping, model_checkpoint, tensorboard_callback]
     )
     # =============================================================
     
     # ================== Model Evaluation ========================
     # Load the best model for this fold
     best_model_fold = load_model(
-        checkpoint_path
+        checkpoint_path, 
+        custom_objects={'F1_Score': F1_Score}
     )
     
     # Convert the best model to TFLite

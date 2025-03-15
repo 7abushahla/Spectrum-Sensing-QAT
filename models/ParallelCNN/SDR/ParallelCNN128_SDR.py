@@ -27,6 +27,8 @@ import shutil  # For copying files
 from sklearn.model_selection import RepeatedKFold
 from tensorflow.keras.models import load_model
 
+
+
 # Suppress TensorFlow INFO, WARNING, and ERROR messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -39,9 +41,9 @@ print(DEVICE)
 # ================== Configuration Variables ==================
 # Experiment Configuration
 model_type = "ParallelCNN"      # Options: "DeepSense", "ParallelCNN"
-N = 32                       # Options: 128, 32
+N = 128                       # Options: 128, 32
 training_type = "normal"      # Options: "normal", "QAT"
-dataset = "LTE_SNR_10"                # Options: "SDR", "LTE"
+dataset = "SDR"                # Options: "SDR", "LTE"
 
 # Reproducibility Settings
 SEED = 42
@@ -51,7 +53,7 @@ tf.random.set_seed(SEED)
 
 # Experiment Settings
 N_FOLDS = 5
-N_REPEATS = 3
+N_REPEATS = 1
 EPOCHS = 150
 BATCHSIZE = 256
 # =============================================================
@@ -165,21 +167,18 @@ class SliceLayer(Layer):
 
 # =============================================================
 
+
 # ================== Data Loading =============================
 # Load training data from the .h5 file
-dset = h5py.File("./lte_10_32_train.h5", 'r')
-X = dset['X'][()]  # Shape: (287971, 32, 2)
-X = np.transpose(X, (2, 1, 0))  # New shape: (471860, 128, 2)
-
-y = dset['y'][()]  # Shape: (287971,)
-y = y.T
+dset = h5py.File("./sdr_wifi_train_128_50k.hdf5", 'r')
+X = dset['X'][()]  
+y = dset['y'][()]  
 
 print(f"Training data shape: {X.shape}")
-print(f"Sample Transposed Data (index 0):\n{X[0, :5, :]}")
-print(f"Sample Transposed Data (index 1000):\n{X[1000, :5, :]}")
-print(f"Sample Transposed Data (index 100000):\n{X[100000, :5, :]}")
+print(f"Sample training data:\n{X[0, :5, :2]}")  # Display first 5 samples
 
 print(f"Labels shape: {y.shape}")
+print(f"Sample labels (first sample):\n{y[0]}")  # Display first label
 
 # Normalize the training data
 # Calculate mean and standard deviation across the dataset for each channel
@@ -191,30 +190,29 @@ X_normalized = (X - mean) / std
 
 # Print normalized data for verification
 print(f"Training data shape: {X_normalized.shape}")
-print(f"Sample normalized training data:\n{X_normalized[0, :10, :]}")
+print(f"Sample normalized training data:\n{X_normalized[0, :5, :]}")
 # =============================================================
+
+
 
 
 # ================== Load Testing Data ========================
 # Load testing data from the .h5 file
-test_dset = h5py.File("./lte_10_32_test.h5", 'r')
+test_dset = h5py.File("./sdr_wifi_test_128_50k.hdf5", 'r')
 X_test = test_dset['X'][()]
-X_test = np.transpose(X_test, (2, 1, 0))  # Same for test data
 y_test = test_dset['y'][()]
-y_test = y_test.T
 
 print(f"Testing data shape: {X_test.shape}")
-print(f"Sample Transposed Test Data (index 0):\n{X_test[0, :5, :]}")
-print(f"Sample Transposed Test Data (index 1000):\n{X_test[1000, :5, :]}")
-print(f"Sample Transposed Test Data (index 10000):\n{X_test[10000, :5, :]}")
+print(f"Sample testing data (first 5 samples):\n{X_test[0, :5, :]}")
 
 print(f"Test Labels shape: {y_test.shape}")
+print(f"Sample test labels (first sample):\n{y_test[0]}")
 
 # Normalize the test data using training mean and std
 X_test_normalized = (X_test - mean) / std
 
 print(f"Normalized testing data shape: {X_test_normalized.shape}")
-print(f"Sample normalized testing data (first 5 samples):\n{X_normalized[0, :10, :]}")
+print(f"Sample normalized testing data (first 5 samples):\n{X_test_normalized[0, :5, :]}")
 # =============================================================
 
 
@@ -709,10 +707,8 @@ if best_overall_history is not None:
     best_model_channel_metrics = np.array(best_model_channel_metrics)
     
     # Create a heatmap (reversed order so Channel-4 appears on top, for example)
-    fig, ax = plt.subplots(figsize=(7, 8))
-    cmap = sns.color_palette("Blues", as_cmap=True)  # "crest" provides a smooth blue-green gradient
-
-    sns.heatmap(best_model_channel_metrics[::-1], annot=True, fmt=".4f", cmap=cmap,
+    fig, ax = plt.subplots(figsize=(8, 4))
+    sns.heatmap(best_model_channel_metrics[::-1], annot=True, fmt=".4f", cmap="Blues",
                 xticklabels=['Precision', 'Recall', 'F1-score'],
                 yticklabels=[f'Channel-{i+1} ({int(y_test.sum(axis=0)[i])})' for i in range(num_channels-1, -1, -1)],
                 cbar=True)
