@@ -17,7 +17,7 @@ For LTE, in [generateLTEDataset.m](https://github.com/wineslab/deepsense-spectru
 Models are trained (with modifications) according to the original DeepSense[^1] and ParallelCNN[^2] architectures. To train the standard and QAT versions of the model, navigate to `/training_scripts` and look at the different architectures and datasets available. Note that the full model training details (including training parameters, such as `batch_size`, `epochs`, `learning_rate`, etc... can be found in the respective `.py` files corresponding to the configuration. 
 
 For example: 
-```
+```css
 Spectrum-Sensing/
 ├──training_scripts/
                    ├──LTE
