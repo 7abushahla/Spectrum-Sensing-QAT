@@ -27,7 +27,7 @@ Spectrum-Sensing/
 │   │       └──Deepsense128_SDR.py
 ```
 
-This structure shows how to access the DeepSense architecture trained on the SDR dataset with a window size of $N=128$. To adjust the window size, keep the dataset and model structure unchanged while modifying the input layer accordingly. Sample scripts are available for **N=128** (SDR and LTE) and LTE (**SNR=10dB**). For **N=32** and different SNR values, update the dataset loading to use the corresponding training and testing files.
+This structure shows how to access the DeepSense architecture trained on the SDR dataset with a window size of $N=128$. To adjust the window size, keep the dataset and model structure unchanged while modifying the input layer accordingly. Sample scripts are available for $N=128$ (SDR and LTE) and LTE (SNR$=10dB$). For $N=32$ and different SNR values, update the dataset loading to use the corresponding training and testing files.
 
 
 [^1]:https://ieeexplore.ieee.org/document/9488764
