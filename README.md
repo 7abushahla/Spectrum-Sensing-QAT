@@ -5,7 +5,7 @@ This repository contains code and resources for the paper: "[Cognitive Radio Spe
 
 ## Introduction
 
-# Datasets
+## Datasets
 
 We evaluate our models using the publicly available SDR and LTE datasets obtained from [here](https://github.com/wineslab/deepsense-spectrum-sensing-datasets).
 
