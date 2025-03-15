@@ -28,6 +28,9 @@ Spectrum-Sensing/
 
 This shows the file structure to get to the DeepSense architecture, trained on the SDR dataset with a window size of $N=128$. Should you want to change the window size, you can keep everything else constant, chance the dataset itself (see above), and then modify the input layer to the network.
 
+We have provided samples for N=128 (SDR and LTE) and LTE (SNR=10db) scripts. The (N=32) and different SNR values for LTE are just changed from those and loading the correspodning dataset train and test files.
+
+
 [^1]:https://ieeexplore.ieee.org/document/9488764
 [^2]:https://ieeexplore.ieee.org/document/10236565
 
