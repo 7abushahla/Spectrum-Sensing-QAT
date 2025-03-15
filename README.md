@@ -1,7 +1,7 @@
 # Cognitive Radio Spectrum Sensing on the Edge: A Quantization-Aware Deep Learning Approach
 _Hamza A. Abushahla, Dara Varam, and Dr. Mohamed I. AlHajri_
 
-Code for the paper: "[Cognitive Radio Spectrum Sensing on the Edge: A Quantization-Aware Deep Learning Approach](https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punumber=4234)"
+This repository contains code and resources for the paper: "[Cognitive Radio Spectrum Sensing on the Edge: A Quantization-Aware Deep Learning Approach](https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punumber=4234)"
 
 ## Introduction
 ## Citation & Reaching out
