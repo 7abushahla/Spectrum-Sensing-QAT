@@ -6,7 +6,7 @@ This repository contains code and resources for the paper: "[Cognitive Radio Spe
 
 ## Introduction
 As wireless communications evolve with 5G and emerging 6G technologies, the dramatic increase in mobile and IoT devices has strained the available radio spectrum, exposing the limitations of traditional static spectrum allocation methods. We introduce a QAT-based approach to optimizing state-of-the-art (SOTA) convolutional neural network (CNN) models for wideband spectrum sensing, tailored for deployment on resource-constrained edge devices. Cognitive radio (CR) allows secondary users to access spectrum holes without interfering with licensed primary users. Recent advancements in deep learning, particularly CNNs, have enabled robust feature extraction from raw in-phase/quadrature (I/Q) data, even under complex channel conditions and noise uncertainties. However, while SOTA architectures like DeepSense and ParallelCNN can quickly detect multiple spectrum holes, their high computational complexity poses a significant challenge for real-time applications on devices with limited resources. Our approach in particular addresses these problems as follows: 
-- We modify existing architectures to optimize them for quantization and hardware deployment;
+- We modify existing architectures to optimize them for quantization and hardware deployment.
 - We provide a comprehensive evaluation of our quantized models across various wireless technologies and under different signal-to-noise ratio (SNR) conditions.
 - The optimized models have been successfully deployed on the Sony Spresense platform, achieving improvements of up to 72% in memory efficiency, 51% in latency reduction, and 7% in power consumption.
 
