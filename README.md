@@ -48,7 +48,7 @@ Deployment on the Sony Spresense involves converting the `.tflite` model into a 
 Datasets were converted into CSV format and uploaded to an SD card, which was read by the Sony Spresense through the extension board.
 
 ### Power Consumption Measurement  
-Power consumption was measured using the **[Yocto-Amp](https://www.yoctopuce.com/EN/products/usb-electrical-sensors/yocto-amp)** current sensor, connected in series with an external 5V source.
+Power consumption was measured using the [Yocto-Amp](https://www.yoctopuce.com/EN/products/usb-electrical-sensors/yocto-amp) current sensor, connected in series with an external 5V source.
 
 ## Citation & Reaching out
 If you use our work for your own research, please cite us with the below: 
