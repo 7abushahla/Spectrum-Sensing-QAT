@@ -12,7 +12,14 @@ For SDR, in bin2hdf5.py, we set `nsamples_per_file = 50000` (to match reported #
 
 For LTE, in generateLTEDataset.m, we set `niq = 32` and `128` (control window size) and varry `snr_db` between `-20db` and `20db`. we keep Cross validation (train: `90%`, test: `10%`) of the generated data. rest of simulation stettings remain as provided by authors.
 
-## Hardware Evaluation
+# Hardware Evaluation
+The best-performing models from each configuration, selected based on validation F1-score, were deployed on the Sony Spresense using TensorFlow Lite Micro (TFLM). 
+
+Deployment on Sony Spresense involves converting the `.tflite` model to a byte array and integrating it into embedded C code using TensorFlow Lite for Microcontrollers (TFLM). Detailed steps are provided in our [Sony Spresense TFLite Guide](https://github.com/7abushahla/Sony-Spresense-TFLite-Guide).
+
+Details on how deployment was done can be found here: https://github.com/7abushahla/Sony-Spresense-TFLite-Guide. Trained models in .tflite format were converted to .h header files and then using the (embedded C code is an Arduino sketch (`.ino` file)) in [`inference_scripts`](inference_scripts) the models are flashed to the devices memory (Flash the compiled code onto the Sony Spresense device's memory using the Arduino IDE) and 1000 inferences are carried to get the average inference time (Each script runs the model for **1,000 inferences** and reports the mean and standard deviation of the inference times in **milliseconds (ms)**.). Datasets were converted into csv format and uploaded on an SD card, which is read by the Sony through the extenstention board. 
+
+Power consumption measurements are performed using the **[Yocto-Amp](https://www.yoctopuce.com/EN/products/usb-electrical-sensors/yocto-amp)** current sensor, connected in series with an external 5V source.
 
 ## Citation & Reaching out
 If you use our work for your own research, please cite us with the below: 
