@@ -14,7 +14,7 @@ For SDR, in [bin2hdf5.py](https://github.com/wineslab/deepsense-spectrum-sensing
 For LTE, in [generateLTEDataset.m](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sim_lte_code/generateLTEDataset.m), we set `niq = 32` and `128` (control window size) and varry `snr_db` between `-20db` and `20db`. we keep Cross validation (train: `90%`, test: `10%`) of the generated data. rest of simulation stettings remain as provided by authors. 
 
 ## Training models
-Models are trained (with modifications) according to the original DeepSense[^1] and ParallelCNN[^2] architectures. 
+Models are trained (with modifications) according to the original DeepSense[^1] and ParallelCNN[^2] architectures. To train the standard and QAT versions of the model, navigate to `/training_scripts` and look at the different architectures and datasets available. Note that the full model training details (including training parameters, such as `batch_size`, `epochs`, `learning_rate`, etc... can be found in the respective `.py` files corresponding to the configuration. 
 
 [^1]:https://ieeexplore.ieee.org/document/9488764
 [^2]:https://ieeexplore.ieee.org/document/10236565
