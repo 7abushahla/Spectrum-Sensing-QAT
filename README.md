@@ -12,7 +12,7 @@ For SDR, in bin2hdf5.py, we set `nsamples_per_file = 50000` (to match reported #
 
 For LTE, in generateLTEDataset.m, we set `niq = 32` and `128` (control window size) and varry `snr_db` between `-20db` and `20db`. we keep Cross validation (train: `90%`, test: `10%`) of the generated data. rest of simulation stettings remain as provided by authors.
 
-# Hardware Evaluation
+## Hardware Evaluation
 
 ## Citation & Reaching out
 If you use our work for your own research, please cite us with the below: 
