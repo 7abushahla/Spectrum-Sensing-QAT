@@ -1,0 +1,106 @@
+{
+    "cross_validation": {
+        "total_folds": 5,
+        "validation_metrics": {
+            "precision": {
+                "mean": 0.972269864877065,
+                "std": 0.003629060990359138
+            },
+            "recall": {
+                "mean": 0.9588455557823181,
+                "std": 0.006098346356208832
+            },
+            "f1_score": {
+                "mean": 0.9659460186958313,
+                "std": 0.004867017027397065
+            }
+        },
+        "test_metrics": {
+            "precision": {
+                "mean": 0.9706497562845211,
+                "std": 0.0037959534156332695
+            },
+            "recall": {
+                "mean": 0.9615237558959601,
+                "std": 0.006330083430891545
+            },
+            "f1_score": {
+                "mean": 0.9660609580213062,
+                "std": 0.00482888363642193
+            }
+        },
+        "per_channel_metrics": {
+            "Channel-1": {
+                "Precision": {
+                    "mean": 0.9799934174136529,
+                    "std": 0.005367727153184848
+                },
+                "Recall": {
+                    "mean": 0.9745976100051473,
+                    "std": 0.0058143326217235825
+                },
+                "F1-score": {
+                    "mean": 0.977282724923129,
+                    "std": 0.005116413350981378
+                },
+                "Occurrences": 47922
+            },
+            "Channel-2": {
+                "Precision": {
+                    "mean": 0.9801314030245712,
+                    "std": 0.004075348802961127
+                },
+                "Recall": {
+                    "mean": 0.9816689257289821,
+                    "std": 0.003177917933612469
+                },
+                "F1-score": {
+                    "mean": 0.9808879183439726,
+                    "std": 0.0014035270927259369
+                },
+                "Occurrences": 47955
+            },
+            "Channel-3": {
+                "Precision": {
+                    "mean": 0.9923493720760942,
+                    "std": 0.001565834352135807
+                },
+                "Recall": {
+                    "mean": 0.9872609964171117,
+                    "std": 0.002034116315430191
+                },
+                "F1-score": {
+                    "mean": 0.9897964935367308,
+                    "std": 0.001084535246834935
+                },
+                "Occurrences": 48099
+            },
+            "Channel-4": {
+                "Precision": {
+                    "mean": 0.9289647803991044,
+                    "std": 0.012740896464120242
+                },
+                "Recall": {
+                    "mean": 0.9023350480253162,
+                    "std": 0.020408006719659266
+                },
+                "F1-score": {
+                    "mean": 0.9153824101634455,
+                    "std": 0.015102056861886258
+                },
+                "Occurrences": 47822
+            },
+            "Micro Average": {
+                "Precision": 0.9706497562845211,
+                "Recall": 0.9615237558959601,
+                "F1-score": 0.9660609580213062,
+                "Occurrences": 191798
+            }
+        },
+        "best_overall_model": {
+            "model_path": "results/ParallelCNN/N32/normal/SDR/models/ParallelCNN_32_normal_SDR_best_overall_model.tflite",
+            "validation_f1_score": 0.9758155345916748,
+            "test_f1_score": 0.9752733767115419
+        }
+    }
+}
