@@ -7,9 +7,9 @@ This repository contains code and resources for the paper: "[Cognitive Radio Spe
 
 We evaluate our models using the publicly available SDR and LTE datasets obtained from: https://github.com/wineslab/deepsense-spectrum-sensing-datasets
 
-For SDR, in "[bin2hdf5.py]([https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punumber=4234](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sdr_wifi_code/bin2hdf5.py)", we set `nsamples_per_file = 50000` (to match reported # of occurnces per channel) and `buf = 32` and `128` (control window size, referred to as $N$ within our paper). we keep test_size = `0.1` (to get `90%` training + validation), and `10%` testing. we keep `stride = 12` (overlap between I/Q samples).
+For SDR, in [bin2hdf5.py](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sdr_wifi_code/bin2hdf5.py)", we set `nsamples_per_file = 50000` (to match reported # of occurnces per channel) and `buf = 32` and `128` (control window size, referred to as $N$ within our paper). we keep test_size = `0.1` (to get `90%` training + validation), and `10%` testing. we keep `stride = 12` (overlap between I/Q samples).
 
-For LTE, in "[generateLTEDataset.m]([[https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punumber=4234](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sdr_wifi_code/bin2hdf5.py](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sim_lte_code/generateLTEDataset.m))", we set `niq = 32` and `128` (control window size) and varry `snr_db` between `-20db` and `20db`. we keep Cross validation (train: `90%`, test: `10%`) of the generated data. rest of simulation stettings remain as provided by authors. 
+For LTE, in [generateLTEDataset.m](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sim_lte_code/generateLTEDataset.m), we set `niq = 32` and `128` (control window size) and varry `snr_db` between `-20db` and `20db`. we keep Cross validation (train: `90%`, test: `10%`) of the generated data. rest of simulation stettings remain as provided by authors. 
 
 ## Training models
 Models are trained (with modifications) according to the original DeepSense[^1] and ParallelCNN[^2] architectures. 
