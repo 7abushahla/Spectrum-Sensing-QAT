@@ -42,7 +42,7 @@ The best-performing models from each configuration, selected based on validation
 Deployment on the Sony Spresense involves converting the `.tflite` model into a byte array and integrating it into embedded C code. The steps are outlined in our [Sony Spresense TFLite Guide](https://github.com/7abushahla/Sony-Spresense-TFLite-Guide). Specifically:
 
 1. **Model Conversion**: The trained `.tflite` models were converted into `.h` header files.  
-2. **Integration & Flashing**: The models were integrated into an Arduino sketch (`.ino` file) located in [`inference_scripts`](inference_scripts) and flashed onto the device using the Arduino IDE.  
+2. **Integration & Flashing**: The models were integrated into the Arduino sketchs (`.ino` files) located in [`inference_scripts`](inference_scripts) and flashed onto the device using the Arduino IDE.  
 3. **Inference Testing**: Each script runs the model for **1,000 inferences**, reporting the mean and standard deviation of inference times in milliseconds (ms).
 
 ### Data Handling  
