@@ -12,7 +12,15 @@ For SDR, in "[bin2hdf5.py]([https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punu
 
 For LTE, in "[generateLTEDataset.m]([[https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punumber=4234](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sdr_wifi_code/bin2hdf5.py](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sim_lte_code/generateLTEDataset.m))", we set `niq = 32` and `128` (control window size) and varry `snr_db` between `-20db` and `20db`. we keep Cross validation (train: `90%`, test: `10%`) of the generated data. rest of simulation stettings remain as provided by authors.
 
-# Hardware Evaluation
+
+## Training models
+Models are trained (with modifications) according to the original DeepSense[^1] and ParallelCNN[^2] architectures. 
+
+[^1]:https://ieeexplore.ieee.org/document/9488764
+[^2]:https://ieeexplore.ieee.org/document/10236565
+
+
+## Hardware Evaluation
 The best-performing models from each configuration, selected based on validation F1-score, were deployed on the Sony Spresense using TensorFlow Lite Micro (TFLM). 
 
 Deployment on Sony Spresense involves converting the `.tflite` model to a byte array and integrating it into embedded C code using TensorFlow Lite for Microcontrollers (TFLM). Detailed steps are provided in our [Sony Spresense TFLite Guide](https://github.com/7abushahla/Sony-Spresense-TFLite-Guide).
