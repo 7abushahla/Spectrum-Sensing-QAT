@@ -26,7 +26,7 @@ Spectrum-Sensing/
                          └──Deepsense128_SDR.py
 ```
 
-This shows the file structure to get to the DeepSense architecture, trained with a window size of $N=128$. Should you want to change the window size, you can keep everything else constant, chance the dataset itself (see above), and then modify the input layer to the network.
+This shows the file structure to get to the DeepSense architecture, trained on the SDR dataset with a window size of $N=128$. Should you want to change the window size, you can keep everything else constant, chance the dataset itself (see above), and then modify the input layer to the network.
 
 [^1]:https://ieeexplore.ieee.org/document/9488764
 [^2]:https://ieeexplore.ieee.org/document/10236565
