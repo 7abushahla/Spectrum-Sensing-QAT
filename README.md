@@ -20,15 +20,14 @@ For example:
 ```css
 Spectrum-Sensing/
 ├──training_scripts/
-                   ├──LTE
-                   └──SDR/
-                         ├──Deepsense128QAT_SDR.py
-                         └──Deepsense128_SDR.py
+│   ├──DeepSense/
+│   │   ├──LTE
+│   │   └──SDR/
+│   │       ├──Deepsense128QAT_SDR.py
+│   │       └──Deepsense128_SDR.py
 ```
 
-This shows the file structure to get to the DeepSense architecture, trained on the SDR dataset with a window size of $N=128$. Should you want to change the window size, you can keep everything else constant, chance the dataset itself (see above), and then modify the input layer to the network.
-
-We have provided samples for N=128 (SDR and LTE) and LTE (SNR=10db) scripts. The (N=32) and different SNR values for LTE are just changed from those and loading the correspodning dataset train and test files.
+This structure shows how to access the DeepSense architecture trained on the SDR dataset with a window size of $N=128$. To adjust the window size, keep the dataset and model structure unchanged while modifying the input layer accordingly. Sample scripts are available for **N=128** (SDR and LTE) and LTE (**SNR=10dB**). For **N=32** and different SNR values, update the dataset loading to use the corresponding training and testing files.
 
 
 [^1]:https://ieeexplore.ieee.org/document/9488764
