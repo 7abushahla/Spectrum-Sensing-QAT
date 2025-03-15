@@ -14,7 +14,7 @@ For SDR, in [bin2hdf5.py](https://github.com/wineslab/deepsense-spectrum-sensing
 For LTE, in [generateLTEDataset.m](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sim_lte_code/generateLTEDataset.m), we set `niq = 32` and `128` (control window size) and varry `snr_db` between `-20db` and `20db`. We keep Cross validation (train: `90%`, test: `10%`) of the generated data. rest of simulation stettings remain as provided by authors. 
 
 ## Training models
-Models are trained (with modifications) according to the original DeepSense[^1] and ParallelCNN[^2] architectures. To train the standard and QAT versions of the model, navigate to `/training_scripts` and look at the different architectures and datasets available. Note that the full model training details (including training parameters, such as `batch_size`, `epochs`, `learning_rate`, etc... can be found in the respective `.py` files corresponding to the configuration. 
+Models are trained (with modifications) according to the original DeepSense[^1] and ParallelCNN[^2] architectures. To train the standard and QAT versions of the model, navigate to [`/training_scripts`](training_scripts) and look at the different architectures and datasets available. Note that the full model training details (including training parameters, such as `batch_size`, `epochs`, `learning_rate`, etc... can be found in the respective `.py` files corresponding to the configuration. 
 
 For example: 
 ```css
@@ -29,6 +29,20 @@ Spectrum-Sensing/
 
 This structure shows how to access the DeepSense architecture trained on the SDR dataset with a window size of $N=128$. To adjust the window size, keep the dataset and model structure unchanged while modifying the input layer accordingly. Sample scripts are available for $N=128$ (SDR and LTE) and LTE (SNR $=10dB$). For $N=32$ and different SNR values, update the dataset loading to use the corresponding training and testing files.
 
+A sample of trained models in `.tflite` and `.h` formats is available in the [`/trained_models`](trained_models) directory. The folder structure is as follows:
+
+
+```css
+Spectrum-Sensing/
+├──trained_models/
+│   ├──DeepSense/
+│   │   ├──LTE/  
+│   │   └──SDR/
+│   │       ├──DeepSense_128_normal_SDR_best_overall_model.tflite
+│   │       ├──DeepSense_128_normal_SDR_best_overall_model.h
+│   │       ├──DeepSense_128_QAT_SDR_best_overall_model_INT8.tflite
+│   │       └──DeepSense_128_QAT_SDR_best_overall_model_INT8.h
+```
 
 [^1]:https://ieeexplore.ieee.org/document/9488764
 [^2]:https://ieeexplore.ieee.org/document/10236565
