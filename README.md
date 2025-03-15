@@ -10,6 +10,8 @@ As wireless communications evolve with 5G and emerging 6G technologies, the dram
 - We provide a comprehensive evaluation of our quantized models across various wireless technologies and under different signal-to-noise ratio (SNR) conditions.
 - The optimized models have been successfully deployed on the Sony Spresense platform, achieving improvements of up to 72% in memory efficiency, 51% in latency reduction, and 7% in power consumption.
 
+To get started, please ensure version compatibility with the packages from `requirements.txt`. We encourage creating a new environment on your machine to keep track.
+
 ## Datasets
 
 We evaluate our models using the publicly available SDR and LTE datasets obtained from [here](https://github.com/wineslab/deepsense-spectrum-sensing-datasets).
