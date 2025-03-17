@@ -16,7 +16,7 @@ To get started, please ensure version compatibility with the packages from `requ
 
 We evaluate our models using the publicly available SDR and LTE datasets obtained from [here](https://github.com/wineslab/deepsense-spectrum-sensing-datasets).
 
-For SDR, in [bin2hdf5.py](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sdr_wifi_code/bin2hdf5.py), we set `nsamples_per_file = 50000` (to match reported # of occurnces per channel) and `buf = 32` and `128` (control window size, referred to as $N$ within our paper). we keep test_size = `0.1` (to get `90%` training + validation), and `10%` testing. we keep `stride = 12` (overlap between I/Q samples).
+For SDR, in [bin2hdf5.py](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sdr_wifi_code/bin2hdf5.py), we set `nsamples_per_file = 50000` (to match reported # of occurrences per channel) and `buf = 32` and `128` (control window size, referred to as $N$ within our paper). we keep test_size = `0.1` (to get `90%` training + validation), and `10%` testing. we keep `stride = 12` (overlap between I/Q samples).
 
 For LTE, in [generateLTEDataset.m](https://github.com/wineslab/deepsense-spectrum-sensing-datasets/blob/main/sim_lte_code/generateLTEDataset.m), we set `niq = 32` and `128` (control window size) and varry `snr_db` between `-20db` and `20db`. We keep Cross validation (train: `90%`, test: `10%`) of the generated data. rest of simulation stettings remain as provided by authors. 
 
