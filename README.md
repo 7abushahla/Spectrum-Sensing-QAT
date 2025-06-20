@@ -3,6 +3,8 @@ _Hamza A. Abushahla, Dara Varam, and Dr. Mohamed I. AlHajri_
 
 This repository contains code and resources for the paper: "[Cognitive Radio Spectrum Sensing on the Edge: A Quantization-Aware Deep Learning Approach](https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punumber=4234)".
 
+![alt text](https://github.com/7abushahla/Spectrum-Sensing-QAT/blob/main/Spectrum%20Sensing%20System%20Diagram.png "Spectrum Sensing System Diagram")
+
 
 ## Introduction
 As wireless communications evolve with 5G and emerging 6G technologies, the dramatic increase in mobile and IoT devices has strained the available radio spectrum, exposing the limitations of traditional static spectrum allocation methods. We introduce a QAT-based approach to optimizing state-of-the-art (SOTA) convolutional neural network (CNN) models for wideband spectrum sensing, tailored for deployment on resource-constrained edge devices. Cognitive radio (CR) allows secondary users to access spectrum holes without interfering with licensed primary users. Recent advancements in deep learning, particularly CNNs, have enabled robust feature extraction from raw in-phase/quadrature (I/Q) data, even under complex channel conditions and noise uncertainties. However, while SOTA architectures like DeepSense and ParallelCNN can quickly detect multiple spectrum holes, their high computational complexity poses a significant challenge for real-time applications on devices with limited resources. Our approach in particular addresses these problems as follows: 
