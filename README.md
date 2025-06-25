@@ -80,15 +80,14 @@ If you use our work for your own research, please cite us with the below:
 @Article{abushahla2025cognitive,
 AUTHOR = {Abushahla, Hamza A. and Varam, Dara and AlHajri, Mohamed I.},
 TITLE = {Cognitive Radio Spectrum Sensing on the Edge: A Quantization-Aware Deep Learning Approach},
-JOURNAL = { },
+JOURNAL = {IEEE Communications Letters},
 VOLUME = {},
-YEAR = {},
+YEAR = {2025},
 NUMBER = {},
 ARTICLE-NUMBER = {},
-URL = {},
 ISSN = {},
 ABSTRACT = {},
-DOI = {}
+DOI = {10.1109/LCOMM.2025.3582680}
 }
 ```
 
