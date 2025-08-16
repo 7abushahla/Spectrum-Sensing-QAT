@@ -77,17 +77,16 @@ Power consumption was measured using the [Yocto-Amp](https://www.yoctopuce.com/E
 If you use our work for your own research, please cite us with the below: 
 
 ```bibtex
-@Article{abushahla2025cognitive,
-AUTHOR = {Abushahla, Hamza A. and Varam, Dara and AlHajri, Mohamed I.},
-TITLE = {Cognitive Radio Spectrum Sensing on the Edge: A Quantization-Aware Deep Learning Approach},
-JOURNAL = {IEEE Communications Letters},
-VOLUME = {},
-YEAR = {2025},
-NUMBER = {},
-ARTICLE-NUMBER = {},
-ISSN = {},
-ABSTRACT = {},
-DOI = {10.1109/LCOMM.2025.3582680}
+@article{abushahla2025cognitive,
+  title={Cognitive Radio Spectrum Sensing on the Edge: A Quantization-Aware Deep Learning Approach}, 
+  author={Abushahla, Hamza A. and Varam, Dara and AlHajri, Mohamed I.},
+  journal={IEEE Communications Letters}, 
+  year={2025},
+  volume={29},
+  number={8},
+  pages={1988-1992},
+  publisher={IEEE}
+  doi={10.1109/LCOMM.2025.3582680}
 }
 ```
 
